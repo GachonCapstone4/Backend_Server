@@ -1,0 +1,24 @@
+package com.emailagent.dto.response;
+
+import com.emailagent.domain.entity.BusinessFaq;
+import lombok.Builder;
+import lombok.Getter;
+import java.time.LocalDateTime;
+
+@Getter
+@Builder
+public class FaqResponse {
+    private Long faqId;
+    private String question;
+    private String answer;
+    private LocalDateTime createdAt;
+
+    public static FaqResponse from(BusinessFaq faq) {
+        return FaqResponse.builder()
+                .faqId(faq.getFaqId())
+                .question(faq.getQuestion())
+                .answer(faq.getAnswer())
+                .createdAt(faq.getCreatedAt())
+                .build();
+    }
+}

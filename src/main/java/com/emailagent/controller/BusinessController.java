@@ -1,0 +1,139 @@
+package com.emailagent.controller;
+
+import com.emailagent.dto.request.*;
+import com.emailagent.dto.response.*;
+import com.emailagent.security.CurrentUser;
+import com.emailagent.service.BusinessService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.IOException;
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/business")
+@RequiredArgsConstructor
+public class BusinessController {
+
+    private final BusinessService businessService;
+
+    // =============================================
+    // 비즈니스 프로필
+    // GET  /api/business/profile
+    // PUT  /api/business/profile
+    // =============================================
+
+    @GetMapping("/profile")
+    public ResponseEntity<BusinessProfileResponse> getProfile(@CurrentUser Long userId) {
+        BusinessProfileResponse response = businessService.getProfile(userId);
+        if (response == null) {
+            return ResponseEntity.noContent().build(); // 프로필 없을 때 204
+        }
+        return ResponseEntity.ok(response);
+    }
+
+    @PutMapping("/profile")
+    public ResponseEntity<BusinessProfileResponse> upsertProfile(
+            @CurrentUser Long userId,
+            @Valid @RequestBody BusinessProfileRequest request) {
+        return ResponseEntity.ok(businessService.upsertProfile(userId, request));
+    }
+
+    // =============================================
+    // 비즈니스 파일
+    // GET    /api/business/resources/files
+    // POST   /api/business/resources/files
+    // DELETE /api/business/resources/files/{resource_id}
+    // =============================================
+
+    @GetMapping("/resources/files")
+    public ResponseEntity<List<BusinessResourceResponse>> getFiles(@CurrentUser Long userId) {
+        return ResponseEntity.ok(businessService.getFiles(userId));
+    }
+
+    @PostMapping(value = "/resources/files", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<BusinessResourceResponse> uploadFile(
+            @CurrentUser Long userId,
+            @RequestParam("file") MultipartFile file) throws IOException {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(businessService.uploadFile(userId, file));
+    }
+
+    @DeleteMapping("/resources/files/{resourceId}")
+    public ResponseEntity<Void> deleteFile(
+            @CurrentUser Long userId,
+            @PathVariable Long resourceId) {
+        businessService.deleteFile(userId, resourceId);
+        return ResponseEntity.noContent().build();
+    }
+
+    // =============================================
+    // FAQ
+    // GET    /api/business/resources/faqs
+    // POST   /api/business/resources/faqs
+    // PUT    /api/business/resources/faqs/{faq_id}
+    // DELETE /api/business/resources/faqs/{faq_id}
+    // =============================================
+
+    @GetMapping("/resources/faqs")
+    public ResponseEntity<List<FaqResponse>> getFaqs(@CurrentUser Long userId) {
+        return ResponseEntity.ok(businessService.getFaqs(userId));
+    }
+
+    @PostMapping("/resources/faqs")
+    public ResponseEntity<FaqResponse> createFaq(
+            @CurrentUser Long userId,
+            @Valid @RequestBody FaqRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(businessService.createFaq(userId, request));
+    }
+
+    @PutMapping("/resources/faqs/{faqId}")
+    public ResponseEntity<FaqResponse> updateFaq(
+            @CurrentUser Long userId,
+            @PathVariable Long faqId,
+            @Valid @RequestBody FaqRequest request) {
+        return ResponseEntity.ok(businessService.updateFaq(userId, faqId, request));
+    }
+
+    @DeleteMapping("/resources/faqs/{faqId}")
+    public ResponseEntity<Void> deleteFaq(
+            @CurrentUser Long userId,
+            @PathVariable Long faqId) {
+        businessService.deleteFaq(userId, faqId);
+        return ResponseEntity.noContent().build();
+    }
+
+    // =============================================
+    // 카테고리
+    // GET    /api/business/categories
+    // POST   /api/business/categories
+    // DELETE /api/business/categories/{category_id}
+    // =============================================
+
+    @GetMapping("/categories")
+    public ResponseEntity<List<CategoryResponse>> getCategories(@CurrentUser Long userId) {
+        return ResponseEntity.ok(businessService.getCategories(userId));
+    }
+
+    @PostMapping("/categories")
+    public ResponseEntity<CategoryResponse> createCategory(
+            @CurrentUser Long userId,
+            @Valid @RequestBody CategoryRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(businessService.createCategory(userId, request));
+    }
+
+    @DeleteMapping("/categories/{categoryId}")
+    public ResponseEntity<Void> deleteCategory(
+            @CurrentUser Long userId,
+            @PathVariable Long categoryId) {
+        businessService.deleteCategory(userId, categoryId);
+        return ResponseEntity.noContent().build();
+    }
+}
