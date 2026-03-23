@@ -1,16 +1,16 @@
 package com.emailagent.dto.request;
 
-import com.emailagent.domain.entity.BusinessProfile.EmailTone;
-import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
 
 @Getter
 public class BusinessProfileRequest {
 
+    @NotBlank
     private String industryType;
 
-    @NotNull
-    private EmailTone emailTone;
-
     private String companyDescription;
+
+    @NotBlank
+    private String emailTone; // FORMAL / NEUTRAL / FRIENDLY
 }
