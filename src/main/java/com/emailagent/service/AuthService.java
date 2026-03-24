@@ -3,10 +3,12 @@ package com.emailagent.service;
 import com.emailagent.domain.entity.User;
 import com.emailagent.dto.request.LoginRequest;
 import com.emailagent.dto.request.SignupRequest;
-import com.emailagent.dto.response.TokenResponse;
+import com.emailagent.dto.response.SignupResponse;
+import com.emailagent.dto.response.TokenLoginResponse;
 import com.emailagent.repository.UserRepository;
 import com.emailagent.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -20,8 +22,11 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
 
+    @Value("${jwt.expiration}")
+    private long jwtExpiration; // ms 단위
+
     @Transactional
-    public TokenResponse signup(SignupRequest request) {
+    public SignupResponse signup(SignupRequest request) {
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new IllegalArgumentException("이미 사용 중인 이메일입니다: " + request.getEmail());
         }
@@ -33,11 +38,14 @@ public class AuthService {
                 .build();
         user = userRepository.save(user);
 
-        return generateTokens(user);
+        return new SignupResponse(user);
     }
 
+    /**
+     * POST /api/auth/tokens — 로그인, JWT Access Token 발급
+     */
     @Transactional
-    public TokenResponse login(LoginRequest request) {
+    public TokenLoginResponse login(LoginRequest request) {
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new BadCredentialsException("이메일 또는 비밀번호가 올바르지 않습니다."));
 
@@ -50,12 +58,8 @@ public class AuthService {
         }
 
         user.updateLastLogin();
-        return generateTokens(user);
-    }
 
-    private TokenResponse generateTokens(User user) {
         String accessToken = jwtTokenProvider.generateAccessToken(user.getUserId(), user.getEmail());
-        String refreshToken = jwtTokenProvider.generateRefreshToken(user.getUserId());
-        return new TokenResponse(accessToken, refreshToken, user.getUserId(), user.getName());
+        return new TokenLoginResponse(accessToken, jwtExpiration);
     }
 }

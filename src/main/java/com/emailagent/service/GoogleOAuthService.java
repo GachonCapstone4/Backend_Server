@@ -1,0 +1,188 @@
+package com.emailagent.service;
+
+import com.emailagent.domain.entity.Integration;
+import com.emailagent.domain.entity.User;
+import com.emailagent.domain.enums.SyncStatus;
+import com.emailagent.dto.request.IntegrationStatusUpdateRequest;
+import com.emailagent.dto.response.*;
+import com.emailagent.exception.InsufficientScopeException;
+import com.emailagent.repository.IntegrationRepository;
+import com.emailagent.repository.UserRepository;
+import com.emailagent.security.JwtTokenProvider;
+import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeRequestUrl;
+import com.google.api.client.googleapis.auth.oauth2.GoogleAuthorizationCodeTokenRequest;
+import com.google.api.client.googleapis.auth.oauth2.GoogleIdToken;
+import com.google.api.client.googleapis.auth.oauth2.GoogleTokenResponse;
+import com.google.api.client.http.javanet.NetHttpTransport;
+import com.google.api.client.json.gson.GsonFactory;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.io.IOException;
+import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.List;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class GoogleOAuthService {
+
+    // 반드시 요청/검증해야 하는 필수 스코프
+    private static final List<String> REQUIRED_SCOPES = Arrays.asList(
+            "email",
+            "profile",
+            "https://www.googleapis.com/auth/gmail.readonly",
+            "https://www.googleapis.com/auth/calendar"
+    );
+
+    private final IntegrationRepository integrationRepository;
+    private final UserRepository userRepository;
+    private final JwtTokenProvider jwtTokenProvider;
+
+    @Value("${app.google.client-id}")
+    private String clientId;
+
+    @Value("${app.google.client-secret}")
+    private String clientSecret;
+
+    @Value("${app.google.redirect-uri}")
+    private String redirectUri;
+
+    // ── 1. Google OAuth 인증 URL 생성 ──────────────────────────────────────────
+
+    /**
+     * CSRF 방지용 state JWT(10분 만료)를 생성하고 Google OAuth 인증 URL을 반환한다.
+     * access_type=offline → refresh_token 발급 보장
+     * prompt=consent → 재동의 화면 강제 (refresh_token 재발급)
+     */
+    @Transactional(readOnly = true)
+    public AuthorizationUrlResponse getAuthorizationUrl(Long userId) {
+        String stateJwt = jwtTokenProvider.generateOAuthStateToken(userId);
+
+        String url = new GoogleAuthorizationCodeRequestUrl(clientId, redirectUri, REQUIRED_SCOPES)
+                .setAccessType("offline")
+                .set("prompt", "consent")
+                .setState(stateJwt)
+                .build();
+
+        return new AuthorizationUrlResponse(url);
+    }
+
+    // ── 2. 콜백 처리 (코드 교환 → 스코프 검증 → DB 저장) ───────────────────────
+
+    /**
+     * Google 리다이렉트 콜백 처리.
+     * 1) state JWT 검증으로 userId 추출 (CSRF 방어)
+     * 2) Authorization Code → Token 교환
+     * 3) 부여된 스코프(Gmail + Calendar) 검증 — 누락 시 InsufficientScopeException
+     * 4) id_token 파싱으로 이메일 및 구글 계정 ID 추출
+     * 5) Integrations 테이블 upsert
+     */
+    @Transactional
+    public SuccessResponse handleCallback(String code, String state) throws IOException {
+        // 1. state JWT 검증 → userId 추출
+        Long userId = jwtTokenProvider.getOAuthStateUserId(state);
+
+        // 2. Authorization Code → Access/Refresh Token 교환
+        GoogleTokenResponse tokenResponse = new GoogleAuthorizationCodeTokenRequest(
+                new NetHttpTransport(),
+                GsonFactory.getDefaultInstance(),
+                clientId,
+                clientSecret,
+                code,
+                redirectUri
+        ).execute();
+
+        // 3. 부여된 스코프 검증
+        String grantedScopesRaw = tokenResponse.getScope();
+        List<String> grantedScopes = Arrays.asList(grantedScopesRaw.split(" "));
+        for (String required : List.of(
+                "https://www.googleapis.com/auth/gmail.readonly",
+                "https://www.googleapis.com/auth/calendar")) {
+            if (!grantedScopes.contains(required)) {
+                throw new InsufficientScopeException(
+                        "필수 권한이 누락되었습니다. 다시 동의해 주세요: " + required);
+            }
+        }
+
+        // 4. id_token 파싱으로 사용자 정보 추출
+        GoogleIdToken idToken = tokenResponse.parseIdToken();
+        GoogleIdToken.Payload payload = idToken.getPayload();
+        String connectedEmail = payload.getEmail();
+        String externalAccountId = payload.getSubject(); // Google 계정 고유 ID
+
+        // 5. 토큰 만료 시각 계산
+        LocalDateTime tokenExpiresAt = LocalDateTime.now()
+                .plusSeconds(tokenResponse.getExpiresInSeconds());
+
+        // 6. Integrations upsert (이미 연동됐으면 갱신, 없으면 신규 생성)
+        integrationRepository.findByUser_UserId(userId).ifPresentOrElse(
+                existing -> existing.updateTokens(
+                        tokenResponse.getAccessToken(),
+                        tokenResponse.getRefreshToken(),
+                        tokenExpiresAt,
+                        grantedScopesRaw,
+                        connectedEmail,
+                        externalAccountId
+                ),
+                () -> {
+                    User user = userRepository.findById(userId)
+                            .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
+                    Integration integration = Integration.builder()
+                            .user(user)
+                            .connectedEmail(connectedEmail)
+                            .externalAccountId(externalAccountId)
+                            .accessToken(tokenResponse.getAccessToken())
+                            .refreshToken(tokenResponse.getRefreshToken())
+                            .tokenExpiresAt(tokenExpiresAt)
+                            .grantedScopes(grantedScopesRaw)
+                            .syncStatus(SyncStatus.CONNECTED)
+                            .lastSyncedAt(LocalDateTime.now())
+                            .build();
+                    integrationRepository.save(integration);
+                }
+        );
+
+        return new SuccessResponse(true);
+    }
+
+    // ── 3. 연동 정보 조회 ──────────────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public IntegrationResponse getMyIntegration(Long userId) {
+        Integration integration = findIntegration(userId);
+        return new IntegrationResponse(integration);
+    }
+
+    // ── 4. 연동 상태 변경 ──────────────────────────────────────────────────────
+
+    @Transactional
+    public IntegrationStatusResponse updateStatus(Long userId, IntegrationStatusUpdateRequest request) {
+        Integration integration = findIntegration(userId);
+        integration.updateSyncStatus(request.getSyncStatus());
+        return new IntegrationStatusResponse(integration);
+    }
+
+    // ── 5. 연동 해제 ───────────────────────────────────────────────────────────
+
+    /**
+     * Integration 레코드 전체 삭제 (토큰 포함 모든 연동 정보 제거)
+     */
+    @Transactional
+    public SuccessResponse deleteIntegration(Long userId) {
+        Integration integration = findIntegration(userId);
+        integrationRepository.delete(integration);
+        return new SuccessResponse(true);
+    }
+
+    // ── 내부 헬퍼 ──────────────────────────────────────────────────────────────
+
+    private Integration findIntegration(Long userId) {
+        return integrationRepository.findByUser_UserId(userId)
+                .orElseThrow(() -> new IllegalArgumentException("연동 정보가 존재하지 않습니다."));
+    }
+}

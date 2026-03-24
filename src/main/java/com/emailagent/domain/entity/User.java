@@ -62,6 +62,14 @@ public class User {
         this.lastLoginAt = LocalDateTime.now();
     }
 
+    public void updateName(String name) {
+        this.name = name;
+    }
+
+    public void updatePassword(String encodedPassword) {
+        this.password = encodedPassword;
+    }
+
     public void deactivate() {
         this.isActive = false;
     }

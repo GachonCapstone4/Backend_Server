@@ -1,13 +1,26 @@
 package com.emailagent.dto.response;
 
-import lombok.AllArgsConstructor;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 
 @Getter
-@AllArgsConstructor
-public class TokenResponse {
-    private String accessToken;
-    private String refreshToken;
-    private Long userId;
-    private String name;
+public class TokenResponse extends BaseResponse {
+
+    @JsonProperty("access_token")
+    private final String accessToken;
+
+    @JsonProperty("refresh_token")
+    private final String refreshToken;
+
+    @JsonProperty("user_id")
+    private final Long userId;
+
+    private final String name;
+
+    public TokenResponse(String accessToken, String refreshToken, Long userId, String name) {
+        this.accessToken = accessToken;
+        this.refreshToken = refreshToken;
+        this.userId = userId;
+        this.name = name;
+    }
 }

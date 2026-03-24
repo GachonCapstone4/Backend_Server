@@ -5,6 +5,7 @@ import com.emailagent.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -30,8 +31,11 @@ public class SecurityConfig {
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                // 공개 엔드포인트
-                .requestMatchers("/api/auth/**").permitAll()
+                // 공개 엔드포인트 (인증 불필요)
+                .requestMatchers(HttpMethod.POST, "/api/users").permitAll()           // 회원가입
+                .requestMatchers(HttpMethod.POST, "/api/auth/tokens").permitAll()     // 로그인
+                .requestMatchers(HttpMethod.GET, "/api/users/email-availability").permitAll() // 이메일 중복 확인
+                .requestMatchers(HttpMethod.GET, "/api/integrations/google/callback").permitAll() // OAuth 콜백
                 .requestMatchers("/api/webhook/**").permitAll()
                 .requestMatchers("/actuator/health").permitAll()
                 // 관리자 전용

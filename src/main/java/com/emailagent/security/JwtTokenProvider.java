@@ -49,6 +49,33 @@ public class JwtTokenProvider {
         return Long.parseLong(getClaims(token).getSubject());
     }
 
+    /**
+     * Google OAuth CSRF 방지용 state JWT 생성 (만료: 10분)
+     * payload: userId + purpose = "google_oauth_state"
+     */
+    public String generateOAuthStateToken(Long userId) {
+        return Jwts.builder()
+                .setSubject(String.valueOf(userId))
+                .claim("purpose", "google_oauth_state")
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + 10 * 60 * 1000L)) // 10분
+                .signWith(key, SignatureAlgorithm.HS256)
+                .compact();
+    }
+
+    /**
+     * OAuth state JWT 검증 후 userId 반환
+     * purpose 클레임이 "google_oauth_state"가 아니면 예외
+     */
+    public Long getOAuthStateUserId(String token) {
+        Claims claims = getClaims(token);
+        String purpose = claims.get("purpose", String.class);
+        if (!"google_oauth_state".equals(purpose)) {
+            throw new io.jsonwebtoken.JwtException("유효하지 않은 OAuth state 토큰입니다.");
+        }
+        return Long.parseLong(claims.getSubject());
+    }
+
     public boolean validateToken(String token) {
         try {
             getClaims(token);

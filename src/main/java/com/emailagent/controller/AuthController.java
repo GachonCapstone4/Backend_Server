@@ -1,8 +1,9 @@
 package com.emailagent.controller;
 
 import com.emailagent.dto.request.LoginRequest;
-import com.emailagent.dto.request.SignupRequest;
-import com.emailagent.dto.response.TokenResponse;
+import com.emailagent.dto.response.AuthMeResponse;
+import com.emailagent.dto.response.TokenLoginResponse;
+import com.emailagent.security.CurrentUser;
 import com.emailagent.service.AuthService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -16,13 +17,15 @@ public class AuthController {
 
     private final AuthService authService;
 
-    @PostMapping("/signup")
-    public ResponseEntity<TokenResponse> signup(@Valid @RequestBody SignupRequest request) {
-        return ResponseEntity.ok(authService.signup(request));
+    /** POST /api/auth/tokens — 로그인, JWT Access Token 발급 */
+    @PostMapping("/tokens")
+    public ResponseEntity<TokenLoginResponse> login(@Valid @RequestBody LoginRequest request) {
+        return ResponseEntity.ok(authService.login(request));
     }
 
-    @PostMapping("/login")
-    public ResponseEntity<TokenResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ResponseEntity.ok(authService.login(request));
+    /** GET /api/auth/me — 현재 인증된 사용자 확인 */
+    @GetMapping("/me")
+    public ResponseEntity<AuthMeResponse> getAuthMe(@CurrentUser Long userId) {
+        return ResponseEntity.ok(new AuthMeResponse(userId));
     }
 }
