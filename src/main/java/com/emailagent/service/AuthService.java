@@ -1,10 +1,10 @@
 package com.emailagent.service;
 
 import com.emailagent.domain.entity.User;
-import com.emailagent.dto.request.LoginRequest;
-import com.emailagent.dto.request.SignupRequest;
-import com.emailagent.dto.response.SignupResponse;
-import com.emailagent.dto.response.TokenLoginResponse;
+import com.emailagent.dto.request.auth.LoginRequest;
+import com.emailagent.dto.request.auth.SignupRequest;
+import com.emailagent.dto.response.auth.SignupResponse;
+import com.emailagent.dto.response.auth.TokenLoginResponse;
 import com.emailagent.repository.UserRepository;
 import com.emailagent.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;

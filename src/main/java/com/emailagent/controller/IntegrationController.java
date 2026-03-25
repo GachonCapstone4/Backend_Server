@@ -1,7 +1,7 @@
 package com.emailagent.controller;
 
-import com.emailagent.dto.request.IntegrationStatusUpdateRequest;
-import com.emailagent.dto.response.*;
+import com.emailagent.dto.request.auth.IntegrationStatusUpdateRequest;
+import com.emailagent.dto.response.auth.*;
 import com.emailagent.security.CurrentUser;
 import com.emailagent.service.GoogleOAuthService;
 import jakarta.validation.Valid;

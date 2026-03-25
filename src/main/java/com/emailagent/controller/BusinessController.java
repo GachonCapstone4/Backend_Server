@@ -1,7 +1,8 @@
 package com.emailagent.controller;
 
-import com.emailagent.dto.request.*;
-import com.emailagent.dto.response.*;
+import com.emailagent.domain.entity.BusinessProfile;
+import com.emailagent.dto.request.business.*;
+import com.emailagent.dto.response.business.*;
 import com.emailagent.security.CurrentUser;
 import com.emailagent.service.BusinessService;
 import jakarta.validation.Valid;
@@ -14,6 +15,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/business")
@@ -32,16 +34,21 @@ public class BusinessController {
     public ResponseEntity<BusinessProfileResponse> getProfile(@CurrentUser Long userId) {
         BusinessProfileResponse response = businessService.getProfile(userId);
         if (response == null) {
-            return ResponseEntity.noContent().build(); // 프로필 없을 때 204
+            return ResponseEntity.noContent().build();
         }
         return ResponseEntity.ok(response);
     }
 
     @PutMapping("/profile")
-    public ResponseEntity<BusinessProfileResponse> upsertProfile(
+    public ResponseEntity<Map<String, Object>> upsertProfile(
             @CurrentUser Long userId,
             @Valid @RequestBody BusinessProfileRequest request) {
-        return ResponseEntity.ok(businessService.upsertProfile(userId, request));
+        BusinessProfile profile = businessService.upsertProfile(userId, request);
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "비즈니스 프로필이 저장되었습니다.",
+                "profile_id", profile.getProfileId()
+        ));
     }
 
     // =============================================
@@ -135,5 +142,18 @@ public class BusinessController {
             @PathVariable Long categoryId) {
         businessService.deleteCategory(userId, categoryId);
         return ResponseEntity.noContent().build();
+    }
+
+    // =============================================
+    // 템플릿 재생성
+    // POST /api/business/templates/regenerate
+    // =============================================
+
+    @PostMapping("/templates/regenerate")
+    public ResponseEntity<TemplateRegenerateResponse> regenerateTemplates(
+            @CurrentUser Long userId,
+            @RequestBody TemplateRegenerateRequest request) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED)
+                .body(businessService.regenerateTemplates(userId, request));
     }
 }

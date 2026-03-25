@@ -1,8 +1,8 @@
 package com.emailagent.controller;
 
-import com.emailagent.dto.request.TemplateCreateRequest;
-import com.emailagent.dto.request.TemplateUpdateRequest;
-import com.emailagent.dto.response.TemplateResponse;
+import com.emailagent.dto.request.template.TemplateCreateRequest;
+import com.emailagent.dto.request.template.TemplateUpdateRequest;
+import com.emailagent.dto.response.template.TemplateResponse;
 import com.emailagent.security.CurrentUser;
 import com.emailagent.service.TemplateService;
 import jakarta.validation.Valid;

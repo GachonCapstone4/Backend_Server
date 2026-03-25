@@ -65,6 +65,10 @@ public class Email {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    // 분석 결과 역방향 매핑 (inbox 조회 FETCH JOIN용, 추가 컬럼 없음)
+    @OneToOne(mappedBy = "email", fetch = FetchType.LAZY)
+    private EmailAnalysisResult analysisResult;
+
     // 상태 변경 메서드
     public void updateStatus(EmailStatus status) {
         this.status = status;

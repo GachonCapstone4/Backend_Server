@@ -1,8 +1,8 @@
 package com.emailagent.controller;
 
-import com.emailagent.dto.request.LoginRequest;
-import com.emailagent.dto.response.AuthMeResponse;
-import com.emailagent.dto.response.TokenLoginResponse;
+import com.emailagent.dto.request.auth.LoginRequest;
+import com.emailagent.dto.response.auth.AuthMeResponse;
+import com.emailagent.dto.response.auth.TokenLoginResponse;
 import com.emailagent.security.CurrentUser;
 import com.emailagent.service.AuthService;
 import jakarta.validation.Valid;

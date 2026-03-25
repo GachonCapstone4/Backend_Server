@@ -1,0 +1,123 @@
+package com.emailagent.service;
+
+import com.emailagent.domain.entity.CalendarEvent;
+import com.emailagent.domain.entity.User;
+import com.emailagent.dto.request.calendar.CalendarEventRequest;
+import com.emailagent.dto.response.calendar.CalendarEventDetailResponse;
+import com.emailagent.dto.response.calendar.CalendarEventResponse;
+import com.emailagent.exception.ResourceNotFoundException;
+import com.emailagent.repository.CalendarEventRepository;
+import com.emailagent.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class CalendarService {
+
+    private final CalendarEventRepository calendarEventRepository;
+    private final UserRepository userRepository;
+
+    // =============================================
+    // GET /api/calendar/events?start_date=&end_date=
+    // 기간 내 일정 목록 조회
+    // =============================================
+    @Transactional(readOnly = true)
+    public List<CalendarEventResponse> getEvents(Long userId, LocalDateTime startDate, LocalDateTime endDate) {
+        return calendarEventRepository.findByPeriod(userId, startDate, endDate)
+                .stream()
+                .map(CalendarEventResponse::from)
+                .toList();
+    }
+
+    // =============================================
+    // GET /api/calendar/events/{event_id}
+    // 일정 상세 조회
+    // =============================================
+    @Transactional(readOnly = true)
+    public CalendarEventDetailResponse getEvent(Long userId, Long eventId) {
+        CalendarEvent event = findEventForUser(eventId, userId);
+        return CalendarEventDetailResponse.from(event);
+    }
+
+    // =============================================
+    // POST /api/calendar/events
+    // 수동 일정 추가 (source=MANUAL, status=CONFIRMED, is_calendar_added=true)
+    // =============================================
+    @Transactional
+    public CalendarEventDetailResponse createEvent(Long userId, CalendarEventRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("사용자를 찾을 수 없습니다."));
+
+        CalendarEvent event = CalendarEvent.builder()
+                .user(user)
+                .title(request.getTitle())
+                .startDatetime(request.getStartDatetime())
+                .endDatetime(request.getEndDatetime())
+                .source("MANUAL")
+                .status("CONFIRMED")
+                .isCalendarAdded(true)
+                .build();
+
+        CalendarEvent saved = calendarEventRepository.save(event);
+
+        // TODO: Google Calendar API로 실제 일정 추가 (Google OAuth 팀 담당)
+        log.info("[TODO] Google Calendar 추가 - eventId={}, title={}", saved.getEventId(), saved.getTitle());
+
+        return CalendarEventDetailResponse.from(saved);
+    }
+
+    // =============================================
+    // PATCH /api/calendar/events/{event_id}/confirm
+    // PENDING → CONFIRMED 상태 변경
+    // =============================================
+    @Transactional
+    public CalendarEventDetailResponse confirmEvent(Long userId, Long eventId) {
+        CalendarEvent event = findEventForUser(eventId, userId);
+
+        if (!"PENDING".equals(event.getStatus())) {
+            throw new IllegalStateException("PENDING 상태인 일정만 확정할 수 있습니다. 현재 상태: " + event.getStatus());
+        }
+
+        event.updateStatus("CONFIRMED");
+
+        // TODO: Google Calendar API로 실제 일정 추가 (Google OAuth 팀 담당)
+        log.info("[TODO] Google Calendar 추가(confirm) - eventId={}, title={}", event.getEventId(), event.getTitle());
+
+        return CalendarEventDetailResponse.from(event);
+    }
+
+    // =============================================
+    // PUT /api/calendar/events/{event_id}
+    // 일정 수정
+    // =============================================
+    @Transactional
+    public CalendarEventDetailResponse updateEvent(Long userId, Long eventId, CalendarEventRequest request) {
+        CalendarEvent event = findEventForUser(eventId, userId);
+
+        event.update(request.getTitle(), request.getStartDatetime(), request.getEndDatetime());
+
+        // TODO: Google Calendar API로 실제 일정 수정 (Google OAuth 팀 담당)
+        log.info("[TODO] Google Calendar 수정 - eventId={}, title={}", event.getEventId(), event.getTitle());
+
+        return CalendarEventDetailResponse.from(event);
+    }
+
+    // =============================================
+    // 내부 헬퍼: 소유권 검증 포함 단건 조회
+    // =============================================
+    private CalendarEvent findEventForUser(Long eventId, Long userId) {
+        CalendarEvent event = calendarEventRepository.findById(eventId)
+                .orElseThrow(() -> new ResourceNotFoundException("일정을 찾을 수 없습니다."));
+        if (!event.getUser().getUserId().equals(userId)) {
+            throw new ResourceNotFoundException("일정을 찾을 수 없습니다.");
+        }
+        return event;
+    }
+}

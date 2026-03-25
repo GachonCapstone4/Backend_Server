@@ -1,8 +1,8 @@
 package com.emailagent.service;
 
 import com.emailagent.domain.entity.*;
-import com.emailagent.dto.request.*;
-import com.emailagent.dto.response.*;
+import com.emailagent.dto.request.business.*;
+import com.emailagent.dto.response.business.*;
 import com.emailagent.exception.ResourceNotFoundException;
 import com.emailagent.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +26,7 @@ public class BusinessService {
     private final BusinessResourceRepository resourceRepository;
     private final BusinessFaqRepository faqRepository;
     private final CategoryRepository categoryRepository;
+    private final TemplateRepository templateRepository;
     private final UserRepository userRepository;
 
     @Value("${app.file.upload-dir:uploads}")
@@ -39,11 +40,11 @@ public class BusinessService {
     public BusinessProfileResponse getProfile(Long userId) {
         return profileRepository.findByUser_UserId(userId)
                 .map(BusinessProfileResponse::from)
-                .orElse(null); // 프로필 없으면 null (최초 온보딩 전)
+                .orElse(null);
     }
 
     @Transactional
-    public BusinessProfileResponse upsertProfile(Long userId, BusinessProfileRequest request) {
+    public BusinessProfile upsertProfile(Long userId, BusinessProfileRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("사용자를 찾을 수 없습니다."));
 
@@ -51,7 +52,7 @@ public class BusinessService {
                 .orElse(BusinessProfile.builder().user(user).build());
 
         profile.update(request.getIndustryType(), request.getEmailTone(), request.getCompanyDescription());
-        return BusinessProfileResponse.from(profileRepository.save(profile));
+        return profileRepository.save(profile);
     }
 
     // =============================================
@@ -71,7 +72,6 @@ public class BusinessService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("사용자를 찾을 수 없습니다."));
 
-        // 파일 저장 경로 생성
         String originalFileName = file.getOriginalFilename();
         String savedFileName = UUID.randomUUID() + "_" + originalFileName;
         Path uploadPath = Paths.get(uploadDir, String.valueOf(userId));
@@ -79,7 +79,6 @@ public class BusinessService {
         Path filePath = uploadPath.resolve(savedFileName);
         Files.copy(file.getInputStream(), filePath, StandardCopyOption.REPLACE_EXISTING);
 
-        // 파일 타입 추출 (확장자 기준)
         String fileType = "";
         if (originalFileName != null && originalFileName.contains(".")) {
             fileType = originalFileName.substring(originalFileName.lastIndexOf(".") + 1).toUpperCase();
@@ -102,7 +101,6 @@ public class BusinessService {
                 .findByResourceIdAndUser_UserId(resourceId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("파일을 찾을 수 없습니다."));
 
-        // 실제 파일 삭제
         try {
             Files.deleteIfExists(Paths.get(resource.getFilePath()));
         } catch (IOException e) {
@@ -190,5 +188,35 @@ public class BusinessService {
                 .filter(c -> c.getUser().getUserId().equals(userId))
                 .orElseThrow(() -> new ResourceNotFoundException("카테고리를 찾을 수 없습니다."));
         categoryRepository.delete(category);
+    }
+
+    // =============================================
+    // 템플릿 재생성
+    // =============================================
+
+    @Transactional(readOnly = true)
+    public TemplateRegenerateResponse regenerateTemplates(Long userId, TemplateRegenerateRequest request) {
+        int processingCount;
+
+        if (request.isRegenerateAll()) {
+            processingCount = templateRepository.findByUser_UserId(userId).size();
+        } else {
+            List<Long> templateIds = request.getTemplateIds();
+            if (templateIds == null || templateIds.isEmpty()) {
+                throw new IllegalArgumentException("재생성할 템플릿 ID를 지정해주세요.");
+            }
+            processingCount = (int) templateIds.stream()
+                    .filter(id -> templateRepository.findById(id)
+                            .map(t -> t.getUser().getUserId().equals(userId))
+                            .orElse(false))
+                    .count();
+        }
+
+        if (processingCount == 0) {
+            throw new IllegalArgumentException("재생성 가능한 템플릿이 없습니다.");
+        }
+
+        log.info("템플릿 재생성 요청: userId={}, count={}", userId, processingCount);
+        return TemplateRegenerateResponse.of(processingCount);
     }
 }

@@ -1,5 +1,6 @@
 package com.emailagent.domain.entity;
 
+import com.emailagent.domain.enums.EmailTone;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -42,10 +43,6 @@ public class BusinessProfile {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
-
-    public enum EmailTone {
-        FORMAL, NEUTRAL, FRIENDLY
-    }
 
     // Upsert용 업데이트 메서드
     public void update(String industryType, EmailTone emailTone, String companyDescription) {

@@ -1,0 +1,80 @@
+package com.emailagent.domain.entity;
+
+import jakarta.persistence.*;
+import lombok.*;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
+@Entity
+@Table(name = "AutomationRules")
+@Getter
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor
+@Builder
+public class AutomationRule {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "rule_id")
+    private Long ruleId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+
+    // 카테고리 삭제 금지 → nullable=false, cascade 없음
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "category_id", nullable = false)
+    private Category category;
+
+    // 템플릿이 없을 수 있음 (nullable)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "template_id")
+    private Template template;
+
+    // 키워드 목록: 별도 테이블(AutomationRuleKeywords)로 관리
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "AutomationRuleKeywords",
+                     joinColumns = @JoinColumn(name = "rule_id"))
+    @Column(name = "keyword", length = 100)
+    @Builder.Default
+    private List<String> keywords = new ArrayList<>();
+
+    @Column(name = "auto_send_enabled", nullable = false)
+    @Builder.Default
+    private boolean autoSendEnabled = false;
+
+    @Column(name = "auto_calendar_enabled", nullable = false)
+    @Builder.Default
+    private boolean autoCalendarEnabled = false;
+
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
+    @UpdateTimestamp
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+
+    // ── 비즈니스 메서드 ──────────────────────────────────────────────────────────
+
+    public void update(Category category, Template template, List<String> keywords, boolean autoSendEnabled) {
+        this.category = category;
+        this.template = template;
+        this.keywords.clear();
+        this.keywords.addAll(keywords);
+        this.autoSendEnabled = autoSendEnabled;
+    }
+
+    public void toggleAutoSend(boolean enabled) {
+        this.autoSendEnabled = enabled;
+    }
+
+    public void toggleAutoCalendar(boolean enabled) {
+        this.autoCalendarEnabled = enabled;
+    }
+}

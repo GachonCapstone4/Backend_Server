@@ -1,13 +1,13 @@
 package com.emailagent.service;
 
 import com.emailagent.domain.entity.User;
-import com.emailagent.dto.request.PasswordChangeRequest;
-import com.emailagent.dto.request.UserProfileUpdateRequest;
-import com.emailagent.dto.response.DeleteUserResponse;
-import com.emailagent.dto.response.EmailAvailabilityResponse;
-import com.emailagent.dto.response.SuccessResponse;
-import com.emailagent.dto.response.UserProfileResponse;
-import com.emailagent.dto.response.UserUpdateResponse;
+import com.emailagent.dto.request.auth.PasswordChangeRequest;
+import com.emailagent.dto.request.auth.UserProfileUpdateRequest;
+import com.emailagent.dto.response.auth.DeleteUserResponse;
+import com.emailagent.dto.response.auth.EmailAvailabilityResponse;
+import com.emailagent.dto.response.auth.SuccessResponse;
+import com.emailagent.dto.response.auth.UserProfileResponse;
+import com.emailagent.dto.response.auth.UserUpdateResponse;
 import com.emailagent.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.BadCredentialsException;

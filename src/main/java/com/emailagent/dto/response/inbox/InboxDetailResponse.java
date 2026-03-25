@@ -1,0 +1,101 @@
+package com.emailagent.dto.response.inbox;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Builder;
+import lombok.Getter;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+
+@Getter
+@Builder
+public class InboxDetailResponse {
+
+    private boolean success;
+    private DetailData data;
+
+    @Getter
+    @Builder
+    public static class DetailData {
+        @JsonProperty("email_info")
+        private EmailInfo emailInfo;
+
+        @JsonProperty("ai_analysis")
+        private AiAnalysis aiAnalysis;
+
+        @JsonProperty("draft_reply")
+        private DraftReplyInfo draftReply; // 초안 없으면 null
+    }
+
+    // ── 이메일 원문 ──────────────────────────────
+    @Getter
+    @Builder
+    public static class EmailInfo {
+        @JsonProperty("email_id")
+        private Long emailId;
+
+        @JsonProperty("sender_name")
+        private String senderName;
+
+        private String subject;
+        private String body; // body_clean
+
+        @JsonProperty("received_at")
+        private LocalDateTime receivedAt;
+    }
+
+    // ── AI 분석 결과 ─────────────────────────────
+    @Getter
+    @Builder
+    public static class AiAnalysis {
+        private String domain;
+        private String intent;
+        private String summary;
+        private Map<String, Object> entities; // entitiesJson 그대로
+    }
+
+    // ── 초안 답장 ────────────────────────────────
+    @Getter
+    @Builder
+    public static class DraftReplyInfo {
+        @JsonProperty("draft_id")
+        private Long draftId;
+
+        private String status;
+
+        @JsonProperty("template_info")
+        private TemplateInfo templateInfo; // 템플릿 없으면 null
+
+        private VariableInfo variables;
+
+        private String subject;
+        private String body;
+    }
+
+    @Getter
+    @Builder
+    public static class TemplateInfo {
+        @JsonProperty("template_id")
+        private Long templateId;
+
+        @JsonProperty("template_title")
+        private String templateTitle;
+    }
+
+    @Getter
+    @Builder
+    public static class VariableInfo {
+        @JsonProperty("auto_completed_count")
+        private int autoCompletedCount;
+
+        @JsonProperty("auto_completed_keys")
+        private List<String> autoCompletedKeys;
+
+        @JsonProperty("required_input_count")
+        private int requiredInputCount;
+
+        @JsonProperty("required_input_keys")
+        private List<String> requiredInputKeys;
+    }
+}
