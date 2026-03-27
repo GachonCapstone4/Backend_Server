@@ -52,6 +52,10 @@ public class AutomationRule {
     @Builder.Default
     private boolean autoCalendarEnabled = false;
 
+    @Column(name = "is_active", nullable = false)
+    @Builder.Default
+    private boolean isActive = true;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -76,5 +80,23 @@ public class AutomationRule {
 
     public void toggleAutoCalendar(boolean enabled) {
         this.autoCalendarEnabled = enabled;
+    }
+
+    // 관리자 PATCH: 선택 필드만 업데이트 (null이면 변경 안 함)
+    public void updateByAdmin(List<String> keywords, Template template,
+                               Boolean isActive, Boolean autoSendEnabled) {
+        if (keywords != null) {
+            this.keywords.clear();
+            this.keywords.addAll(keywords);
+        }
+        if (template != null) {
+            this.template = template;
+        }
+        if (isActive != null) {
+            this.isActive = isActive;
+        }
+        if (autoSendEnabled != null) {
+            this.autoSendEnabled = autoSendEnabled;
+        }
     }
 }

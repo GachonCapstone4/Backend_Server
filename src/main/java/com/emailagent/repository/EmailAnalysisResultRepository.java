@@ -49,4 +49,8 @@ public interface EmailAnalysisResultRepository extends JpaRepository<EmailAnalys
             WHERE ar.email.emailId IN :emailIds
             """)
     List<EmailAnalysisResult> findByEmailIdsWithCategory(@Param("emailIds") List<Long> emailIds);
+
+    // 관리자 대시보드: 오늘 AI 분석 완료 건수
+    @Query("SELECT COUNT(ar) FROM EmailAnalysisResult ar WHERE ar.createdAt >= :start AND ar.createdAt < :end")
+    long countByCreatedAtBetween(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
 }
