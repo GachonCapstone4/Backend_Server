@@ -2,6 +2,7 @@ package com.emailagent.repository;
 
 import com.emailagent.domain.entity.Category;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import java.util.List;
@@ -28,4 +29,8 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
             ORDER BY u.userId ASC
             """)
     List<Category> findAllByCategoryNameWithUser(@Param("categoryName") String categoryName);
+
+    @Modifying
+    @Query("DELETE FROM Category c WHERE c.user.userId = :userId")
+    void deleteByUser_UserId(@Param("userId") Long userId);
 }

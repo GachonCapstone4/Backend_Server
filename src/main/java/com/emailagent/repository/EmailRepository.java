@@ -5,6 +5,7 @@ import com.emailagent.domain.enums.EmailStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -98,4 +99,8 @@ public interface EmailRepository extends JpaRepository<Email, Long> {
     @Query(value = "SELECT DATE(received_at) as date, COUNT(*) as count FROM Emails WHERE received_at >= :start GROUP BY DATE(received_at) ORDER BY DATE(received_at)",
            nativeQuery = true)
     List<Object[]> countReceivedGroupedByDate(@Param("start") LocalDateTime start);
+
+    @Modifying
+    @Query("DELETE FROM Email e WHERE e.user.userId = :userId")
+    void deleteByUser_UserId(@Param("userId") Long userId);
 }

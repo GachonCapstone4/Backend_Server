@@ -2,6 +2,7 @@ package com.emailagent.repository;
 
 import com.emailagent.domain.entity.BusinessProfile;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -17,4 +18,8 @@ public interface BusinessProfileRepository extends JpaRepository<BusinessProfile
     // 관리자 - 사용자 ID 목록으로 배치 조회 (N+1 방지)
     @Query("SELECT bp FROM BusinessProfile bp WHERE bp.user.userId IN :userIds")
     List<BusinessProfile> findAllByUserIds(@Param("userIds") List<Long> userIds);
+
+    @Modifying
+    @Query("DELETE FROM BusinessProfile bp WHERE bp.user.userId = :userId")
+    void deleteByUser_UserId(@Param("userId") Long userId);
 }

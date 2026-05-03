@@ -2,6 +2,7 @@ package com.emailagent.repository;
 
 import com.emailagent.domain.entity.EmailTemplateRecommendation;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -25,4 +26,8 @@ public interface EmailTemplateRecommendationRepository extends JpaRepository<Ema
     void deleteByUser_UserIdAndEmail_EmailId(Long userId, Long emailId);
 
     Optional<EmailTemplateRecommendation> findByEmail_EmailIdAndTemplate_TemplateId(Long emailId, Long templateId);
+
+    @Modifying
+    @Query("DELETE FROM EmailTemplateRecommendation r WHERE r.user.userId = :userId")
+    void deleteByUser_UserId(@Param("userId") Long userId);
 }

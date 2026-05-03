@@ -77,4 +77,8 @@ public interface OutboxRepository extends JpaRepository<Outbox, Long> {
 
     // 이메일별 활성 Outbox 조회 — 소프트 삭제 시 READY/SENDING 항목을 CANCELLED 처리하기 위해 사용
     List<Outbox> findByEmail_EmailIdAndStatusIn(Long emailId, List<OutboxStatus> statuses);
+
+    @Modifying
+    @Query("DELETE FROM Outbox o WHERE o.email.emailId IN (SELECT e.emailId FROM Email e WHERE e.user.userId = :userId)")
+    void deleteByUserId(@Param("userId") Long userId);
 }

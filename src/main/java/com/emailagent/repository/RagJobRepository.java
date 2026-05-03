@@ -4,6 +4,7 @@ import com.emailagent.domain.entity.RagJob;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -18,4 +19,8 @@ public interface RagJobRepository extends JpaRepository<RagJob, String> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT j FROM RagJob j WHERE j.jobId = :jobId")
     Optional<RagJob> findByIdForUpdate(@Param("jobId") String jobId);
+
+    @Modifying
+    @Query("DELETE FROM RagJob j WHERE j.user.userId = :userId")
+    void deleteByUser_UserId(@Param("userId") Long userId);
 }
