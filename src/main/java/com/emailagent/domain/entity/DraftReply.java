@@ -63,4 +63,8 @@ public class DraftReply {
         this.draftSubject = draftSubject;
         this.draftContent = draftContent;
     }
+
+    public void updateTemplate(Template template) {
+        this.template = template;
+    }
 }

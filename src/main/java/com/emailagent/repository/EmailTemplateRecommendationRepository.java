@@ -29,6 +29,19 @@ public interface EmailTemplateRecommendationRepository extends JpaRepository<Ema
 
     Optional<EmailTemplateRecommendation> findByEmail_EmailIdAndTemplate_TemplateId(Long emailId, Long templateId);
 
+    @Query("""
+            SELECT r FROM EmailTemplateRecommendation r
+            JOIN FETCH r.template t
+            WHERE r.recommendationId = :recommendationId
+              AND r.user.userId = :userId
+              AND r.email.emailId = :emailId
+            """)
+    Optional<EmailTemplateRecommendation> findSelectedRecommendation(
+            @Param("recommendationId") Long recommendationId,
+            @Param("userId") Long userId,
+            @Param("emailId") Long emailId
+    );
+
     @Modifying
     @Query("DELETE FROM EmailTemplateRecommendation r WHERE r.user.userId = :userId")
     void deleteByUser_UserId(@Param("userId") Long userId);
