@@ -8,12 +8,20 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
 public interface DraftReplyRepository extends JpaRepository<DraftReply, Long> {
 
     long countByUser_UserIdAndStatus(Long userId, DraftStatus status);
+
+    long countByUser_UserIdAndStatusInAndUpdatedAtBetween(
+            Long userId,
+            Collection<DraftStatus> statuses,
+            LocalDateTime start,
+            LocalDateTime end
+    );
 
     // template FETCH JOIN (N+1 방지)
     @Query("""

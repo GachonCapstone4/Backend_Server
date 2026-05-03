@@ -74,6 +74,11 @@ public class User {
     @Builder.Default
     private Map<String, Boolean> notificationConfigs = NotificationConfigConverter.defaultConfigs();
 
+    // 검토 대기 초안 알림 임계값
+    @Column(name = "notification_draft_threshold", nullable = false)
+    @Builder.Default
+    private Integer notificationDraftThreshold = 3;
+
     // 화면 설정 (JSON): 대시보드 위젯 노출 여부와 화면 테마를 사용자별로 저장
     @Column(name = "display_configs", columnDefinition = "JSON")
     @Convert(converter = DisplayConfigConverter.class)
@@ -122,6 +127,10 @@ public class User {
 
     public void updateNotificationConfigs(Map<String, Boolean> configs) {
         this.notificationConfigs = configs;
+    }
+
+    public void updateNotificationDraftThreshold(Integer threshold) {
+        this.notificationDraftThreshold = threshold;
     }
 
     public void updateDisplayConfigs(UserDisplayConfig configs) {

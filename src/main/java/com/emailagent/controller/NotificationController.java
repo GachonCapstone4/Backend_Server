@@ -50,7 +50,7 @@ public class NotificationController {
     @PatchMapping("/settings")
     public ResponseEntity<NotificationSettingsResponse> updateSettings(
             @CurrentUser Long userId,
-            @RequestBody Map<String, Boolean> settings) {
+            @RequestBody Map<String, Object> settings) {
         return ResponseEntity.ok(notificationService.updateSettings(userId, settings));
     }
 }

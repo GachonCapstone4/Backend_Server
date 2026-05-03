@@ -3,6 +3,7 @@ package com.emailagent.dto.response.notification;
 import com.emailagent.dto.response.auth.BaseResponse;
 import com.fasterxml.jackson.annotation.JsonAnyGetter;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -11,15 +12,19 @@ import java.util.Map;
  */
 public class NotificationSettingsResponse extends BaseResponse {
 
-    private final Map<String, Boolean> settings;
+    private static final String DRAFT_THRESHOLD_KEY = "DRAFT_THRESHOLD";
 
-    public NotificationSettingsResponse(Map<String, Boolean> settings) {
+    private final Map<String, Object> settings;
+
+    public NotificationSettingsResponse(Map<String, Boolean> settings, Integer draftThreshold) {
         super();
-        this.settings = settings;
+        Map<String, Object> responseSettings = new LinkedHashMap<>(settings);
+        responseSettings.put(DRAFT_THRESHOLD_KEY, draftThreshold != null ? draftThreshold : 3);
+        this.settings = responseSettings;
     }
 
     @JsonAnyGetter
-    public Map<String, Boolean> getSettings() {
+    public Map<String, Object> getSettings() {
         return settings;
     }
 }
