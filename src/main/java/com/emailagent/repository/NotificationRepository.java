@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
+import java.time.LocalDateTime;
 
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
 
@@ -19,6 +20,19 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
 
     // 소유권 검증 포함 단건 조회
     Optional<Notification> findByNotificationIdAndUser_UserId(Long notificationId, Long userId);
+
+    boolean existsByUser_UserIdAndTypeAndRelatedIdAndIsReadFalse(
+            Long userId,
+            String type,
+            Long relatedId
+    );
+
+    boolean existsByUser_UserIdAndTypeAndCreatedAtBetween(
+            Long userId,
+            String type,
+            LocalDateTime start,
+            LocalDateTime end
+    );
 
     // 전체 읽음 처리 (벌크 UPDATE — 1건씩 dirty checking 대신 단일 쿼리 사용)
     @Modifying

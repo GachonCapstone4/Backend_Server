@@ -43,6 +43,7 @@ public class RagResultService {
     private final RagTemplateIndexService ragTemplateIndexService;
     private final RagPublisher ragPublisher;
     private final ApplicationEventPublisher eventPublisher;
+    private final NotificationService notificationService;
 
     @Transactional
     public void handleDraftGenerated(RagDraftGenerateResultDTO result) {
@@ -267,6 +268,7 @@ public class RagResultService {
                 items.size()
         );
 
+        notificationService.createPendingDraftQueueNotificationIfNeeded(email.getUser(), emailId);
         pushTemplateMatchUpdate(userId, emailId, items.size());
     }
 

@@ -55,6 +55,7 @@ public class InboxService {
     private final GmailApiService gmailApiService;
     private final GoogleCalendarApiService googleCalendarApiService;
     private final TemplateService templateService;
+    private final NotificationService notificationService;
 
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{\\s*([^{}]+?)\\s*\\}\\}");
     private static final DateTimeFormatter TEMPLATE_DATE_TIME_FORMATTER =
@@ -313,6 +314,7 @@ public class InboxService {
                     draft.updateTemplate(selectedTemplate);
                     draft.updateStatus(DraftStatus.PENDING_REVIEW);
                 }
+                notificationService.createPendingDraftQueueNotificationIfNeeded(email.getUser(), emailId);
                 yield "답장 초안을 임시 저장했습니다.";
             }
             case "SKIP" -> {
