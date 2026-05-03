@@ -292,6 +292,29 @@ public class InboxService {
                 }
                 yield "수정된 답장이 발송되었습니다.";
             }
+            case "SAVE_DRAFT" -> {
+                if (request.getContent() == null || request.getContent().isBlank()) {
+                    throw new IllegalArgumentException("SAVE_DRAFT 액션은 content가 필요합니다.");
+                }
+                String draftSubject = resolveReplySubject(email, draft, request.getSubject());
+                Template selectedTemplate = resolveDraftTemplate(userId, emailId, draft, request);
+
+                if (draft == null) {
+                    draftReplyRepository.save(DraftReply.builder()
+                            .user(email.getUser())
+                            .email(email)
+                            .template(selectedTemplate)
+                            .status(DraftStatus.PENDING_REVIEW)
+                            .draftSubject(draftSubject)
+                            .draftContent(request.getContent())
+                            .build());
+                } else {
+                    draft.updateContent(draftSubject, request.getContent());
+                    draft.updateTemplate(selectedTemplate);
+                    draft.updateStatus(DraftStatus.PENDING_REVIEW);
+                }
+                yield "답장 초안을 임시 저장했습니다.";
+            }
             case "SKIP" -> {
                 email.updateStatus(EmailStatus.PROCESSED);
                 if (draft == null) {
@@ -310,6 +333,23 @@ public class InboxService {
         };
 
         return InboxActionResponse.builder().message(message).build();
+    }
+
+    private Template resolveDraftTemplate(Long userId, Long emailId, DraftReply draft, ReplyActionRequest request) {
+        if (request.getRecommendationId() != null) {
+            return recommendationRepository
+                    .findSelectedRecommendation(request.getRecommendationId(), userId, emailId)
+                    .map(EmailTemplateRecommendation::getTemplate)
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "추천 템플릿을 찾을 수 없습니다: " + request.getRecommendationId()
+                    ));
+        }
+
+        if (Boolean.TRUE.equals(request.getManualDraft())) {
+            return null;
+        }
+
+        return draft != null ? draft.getTemplate() : null;
     }
 
     private String resolveReplySubject(Email email, DraftReply draft, String requestedSubject) {
