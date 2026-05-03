@@ -15,8 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
-import java.time.Instant;
-import java.util.concurrent.ConcurrentHashMap;
+import java.time.LocalDateTime;
 
 @Slf4j
 @Service
@@ -30,16 +29,14 @@ public class PasswordResetService {
     @Value("${spring.mail.username}")
     private String fromAddress;
 
-    /** 인증 코드 저장소: email → [code, expiryEpochSeconds] */
-    private final ConcurrentHashMap<String, long[]> codeStore = new ConcurrentHashMap<>();
-
-    private static final long CODE_TTL_SECONDS = 300; // 5분
+    private static final long CODE_TTL_MINUTES = 5;
     private static final SecureRandom RANDOM = new SecureRandom();
 
     /**
-     * Step 1: 이름 + 이메일 검증 후 6자리 인증 코드 발송
+     * Step 1: 이름 + 이메일 검증 후 6자리 인증 코드 발송.
+     * 코드는 멀티 파드 환경에서도 공유될 수 있도록 Users 테이블에 저장한다.
      */
-    @Transactional(readOnly = true)
+    @Transactional
     public BaseResponse sendCode(PasswordResetCodeRequest request) {
         // 이름·이메일 검증 — 일치 여부를 외부에 노출하지 않기 위해 동일 오류 메시지 사용
         User user = userRepository.findByEmail(request.getEmail())
@@ -47,8 +44,10 @@ public class PasswordResetService {
                 .orElseThrow(() -> new IllegalArgumentException("이름 또는 이메일이 올바르지 않습니다."));
 
         String code = generateCode();
-        long expiry = Instant.now().getEpochSecond() + CODE_TTL_SECONDS;
-        codeStore.put(request.getEmail(), new long[]{Long.parseLong(code), expiry});
+        LocalDateTime expiresAt = LocalDateTime.now().plusMinutes(CODE_TTL_MINUTES);
+
+        // DB에 저장 — 기존 코드가 있어도 덮어씀 (재발송 허용)
+        user.saveResetCode(code, expiresAt);
 
         sendEmail(user.getEmail(), code);
         log.info("비밀번호 재설정 인증 코드 발송: email={}", user.getEmail());
@@ -56,44 +55,39 @@ public class PasswordResetService {
     }
 
     /**
-     * Step 2: 인증 코드 검증 + 새 비밀번호 설정
+     * Step 2: 인증 코드 검증 + 새 비밀번호 설정.
+     * 검증 성공 즉시 코드를 DB에서 제거하여 재사용을 방지한다.
      */
     @Transactional
     public BaseResponse verifyAndReset(PasswordResetVerifyRequest request) {
-        long[] entry = codeStore.get(request.getEmail());
-
-        if (entry == null) {
-            throw new IllegalArgumentException("인증 코드가 존재하지 않습니다. 다시 요청해 주세요.");
-        }
-
-        long storedCode = entry[0];
-        long expiry = entry[1];
-
-        // 만료 검사
-        if (Instant.now().getEpochSecond() > expiry) {
-            codeStore.remove(request.getEmail());
-            throw new IllegalArgumentException("인증 코드가 만료되었습니다. 다시 요청해 주세요.");
-        }
-
-        // 코드 일치 검사
-        if (storedCode != Long.parseLong(request.getCode())) {
-            throw new IllegalArgumentException("인증 코드가 올바르지 않습니다.");
-        }
-
-        // 검증 성공 — 코드 즉시 제거(재사용 방지)
-        codeStore.remove(request.getEmail());
-
         User user = userRepository.findByEmail(request.getEmail())
                 .filter(User::isActive)
                 .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
 
+        // 코드 존재 여부 확인
+        if (user.getResetCode() == null || user.getResetCodeExpiresAt() == null) {
+            throw new IllegalArgumentException("인증 코드가 존재하지 않습니다. 다시 요청해 주세요.");
+        }
+
+        // 만료 검사
+        if (LocalDateTime.now().isAfter(user.getResetCodeExpiresAt())) {
+            user.clearResetCode();
+            throw new IllegalArgumentException("인증 코드가 만료되었습니다. 다시 요청해 주세요.");
+        }
+
+        // 코드 일치 검사
+        if (!user.getResetCode().equals(request.getCode())) {
+            throw new IllegalArgumentException("인증 코드가 올바르지 않습니다.");
+        }
+
+        // 검증 성공 — 코드 즉시 제거(재사용 방지) 후 비밀번호 변경
+        user.clearResetCode();
         user.updatePassword(passwordEncoder.encode(request.getNewPassword()));
         log.info("비밀번호 재설정 완료: email={}", user.getEmail());
         return new BaseResponse();
     }
 
     private String generateCode() {
-        // 000000 ~ 999999 범위의 6자리 코드 (앞자리 0 포함하여 6자리로 포맷)
         return String.format("%06d", RANDOM.nextInt(1_000_000));
     }
 
