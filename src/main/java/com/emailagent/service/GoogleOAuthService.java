@@ -1,5 +1,6 @@
 package com.emailagent.service;
 
+import com.emailagent.domain.entity.GooglePendingRegistration;
 import com.emailagent.domain.entity.Integration;
 import com.emailagent.domain.entity.User;
 import com.emailagent.domain.enums.SyncStatus;
@@ -7,6 +8,7 @@ import com.emailagent.dto.request.auth.GoogleSignupRequest;
 import com.emailagent.dto.request.auth.IntegrationStatusUpdateRequest;
 import com.emailagent.dto.response.auth.*;
 import com.emailagent.exception.InsufficientScopeException;
+import com.emailagent.repository.GooglePendingRegistrationRepository;
 import com.emailagent.repository.IntegrationRepository;
 import com.emailagent.repository.UserRepository;
 import com.emailagent.security.JwtTokenProvider;
@@ -27,13 +29,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Service
@@ -56,10 +56,11 @@ public class GoogleOAuthService {
     private static final String CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
 
     // 회원가입 임시 저장 TTL (10분)
-    private static final long PENDING_TTL_SECONDS = 600;
+    private static final long PENDING_TTL_MINUTES = 10;
 
     private final IntegrationRepository integrationRepository;
     private final UserRepository userRepository;
+    private final GooglePendingRegistrationRepository pendingRepository;
     private final JwtTokenProvider jwtTokenProvider;
     private final GoogleApiClientProvider googleApiClientProvider;
     private final PasswordEncoder passwordEncoder;
@@ -78,25 +79,6 @@ public class GoogleOAuthService {
 
     @Value("${jwt.expiration}")
     private long jwtExpiration;
-
-    /**
-     * 신규 유저 Google 회원가입 OAuth 임시 데이터 저장소.
-     * key: temp_token(UUID), value: OAuth 토큰 + 사용자 정보 + 만료 시각
-     */
-    private final ConcurrentHashMap<String, PendingRegistration> pendingStore = new ConcurrentHashMap<>();
-
-    // 회원가입 임시 저장 데이터 구조
-    private record PendingRegistration(
-            String gmailAddress,
-            String name,
-            String accessToken,
-            String refreshToken,
-            LocalDateTime tokenExpiresAt,
-            String grantedScopes,
-            String externalAccountId,
-            boolean isCalendarConnected,
-            long expiryEpoch
-    ) {}
 
     // ── 1. Google OAuth 인증 URL 생성 ──────────────────────────────────────────
 
@@ -239,15 +221,22 @@ public class GoogleOAuthService {
             throw new IllegalStateException("이미 가입된 회원입니다. 로그인 화면에서 로그인해 주세요.");
         }
 
-        // Case 3: 신규 유저 → OAuth 데이터 임시 저장 후 회원가입 페이지로
+        // Case 3: 신규 유저 → OAuth 데이터 DB에 임시 저장 후 회원가입 페이지로
+        // 멀티 파드 환경에서도 어느 파드에서 Step 2 요청을 받아도 조회 가능하도록 DB에 저장한다.
         String tempToken = UUID.randomUUID().toString();
-        long expiryEpoch = Instant.now().getEpochSecond() + PENDING_TTL_SECONDS;
-        pendingStore.put(tempToken, new PendingRegistration(
-                gmailAddress, name,
-                tokenResponse.getAccessToken(), tokenResponse.getRefreshToken(),
-                tokenExpiresAt, grantedScopesRaw, externalAccountId, isCalendarConnected, expiryEpoch
-        ));
-        log.info("[Google 회원가입] 신규 유저 임시 저장: email={}", gmailAddress);
+        pendingRepository.save(GooglePendingRegistration.builder()
+                .tempToken(tempToken)
+                .gmailAddress(gmailAddress)
+                .name(name)
+                .accessToken(tokenResponse.getAccessToken())
+                .refreshToken(tokenResponse.getRefreshToken())
+                .tokenExpiresAt(tokenExpiresAt)
+                .grantedScopes(grantedScopesRaw)
+                .externalAccountId(externalAccountId)
+                .isCalendarConnected(isCalendarConnected)
+                .expiresAt(LocalDateTime.now().plusMinutes(PENDING_TTL_MINUTES))
+                .build());
+        log.info("[Google 회원가입] 신규 유저 임시 저장 (DB): email={}", gmailAddress);
         return OAuthCallbackResult.pendingRegistration(tempToken, gmailAddress, name);
     }
 
@@ -259,40 +248,38 @@ public class GoogleOAuthService {
      */
     @Transactional
     public TokenLoginResponse completeGoogleSignup(GoogleSignupRequest request) {
-        PendingRegistration pending = pendingStore.get(request.getTempToken());
-
-        if (pending == null) {
-            throw new IllegalArgumentException("회원가입 세션이 만료되었습니다. 다시 시도해 주세요.");
-        }
+        // temp_token으로 DB에서 임시 저장 데이터 조회
+        GooglePendingRegistration pending = pendingRepository.findById(request.getTempToken())
+                .orElseThrow(() -> new IllegalArgumentException("회원가입 세션이 만료되었습니다. 다시 시도해 주세요."));
 
         // TTL 검증
-        if (Instant.now().getEpochSecond() > pending.expiryEpoch()) {
-            pendingStore.remove(request.getTempToken());
+        if (LocalDateTime.now().isAfter(pending.getExpiresAt())) {
+            pendingRepository.delete(pending);
             throw new IllegalArgumentException("회원가입 세션이 만료되었습니다. 다시 시도해 주세요.");
         }
 
         // 동시 요청 방어: 이미 가입된 이메일인지 최종 확인
-        if (userRepository.existsByEmail(pending.gmailAddress())) {
-            pendingStore.remove(request.getTempToken());
+        if (userRepository.existsByEmail(pending.getGmailAddress())) {
+            pendingRepository.delete(pending);
             throw new IllegalArgumentException("이미 가입된 이메일입니다.");
         }
 
         // User 생성 (이메일 = Gmail 주소, 이름 = Google 계정 이름)
         User user = userRepository.save(User.builder()
-                .email(pending.gmailAddress())
+                .email(pending.getGmailAddress())
                 .password(passwordEncoder.encode(request.getPassword()))
-                .name(pending.name())
+                .name(pending.getName())
                 .build());
 
         // Integration 생성
         Integration integration = integrationRepository.save(Integration.builder()
                 .user(user)
-                .connectedEmail(pending.gmailAddress())
-                .externalAccountId(pending.externalAccountId())
-                .accessToken(pending.accessToken())
-                .refreshToken(pending.refreshToken())
-                .tokenExpiresAt(pending.tokenExpiresAt())
-                .grantedScopes(pending.grantedScopes())
+                .connectedEmail(pending.getGmailAddress())
+                .externalAccountId(pending.getExternalAccountId())
+                .accessToken(pending.getAccessToken())
+                .refreshToken(pending.getRefreshToken())
+                .tokenExpiresAt(pending.getTokenExpiresAt())
+                .grantedScopes(pending.getGrantedScopes())
                 .isGmailConnected(true)
                 .isCalendarConnected(pending.isCalendarConnected())
                 .syncStatus(SyncStatus.CONNECTED)
@@ -300,7 +287,7 @@ public class GoogleOAuthService {
                 .build());
 
         registerWatch(integration);
-        pendingStore.remove(request.getTempToken());
+        pendingRepository.delete(pending); // 재사용 방지
 
         log.info("[Google 회원가입] 신규 계정 생성 완료: userId={}, email={}", user.getUserId(), user.getEmail());
         String accessToken = jwtTokenProvider.generateAccessToken(user.getUserId(), user.getEmail());

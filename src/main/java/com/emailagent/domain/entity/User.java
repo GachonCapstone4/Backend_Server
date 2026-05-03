@@ -48,6 +48,13 @@ public class User {
     @Column(name = "last_login_at")
     private LocalDateTime lastLoginAt;
 
+    // 비밀번호 재설정 인증 코드 (멀티 파드 환경에서 공유되도록 DB 저장)
+    @Column(name = "reset_code", length = 6)
+    private String resetCode;
+
+    @Column(name = "reset_code_expires_at")
+    private LocalDateTime resetCodeExpiresAt;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -84,5 +91,15 @@ public class User {
 
     public void completeOnboarding() {
         this.onboardingCompleted = true;
+    }
+
+    public void saveResetCode(String code, LocalDateTime expiresAt) {
+        this.resetCode = code;
+        this.resetCodeExpiresAt = expiresAt;
+    }
+
+    public void clearResetCode() {
+        this.resetCode = null;
+        this.resetCodeExpiresAt = null;
     }
 }
