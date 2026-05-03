@@ -27,6 +27,7 @@ public class TemplateService {
     private final CategoryRepository categoryRepository;
     private final UserRepository userRepository;
     private final TemplateNumberService templateNumberService;
+    private final RagTemplateIndexService ragTemplateIndexService;
 
     @Transactional(readOnly = true)
     public TemplateListResponse getTemplates(Long userId) {
@@ -62,8 +63,11 @@ public class TemplateService {
                 .subjectTemplate(request.getSubjectTemplate())
                 .bodyTemplate(request.getBodyTemplate())
                 .build();
+        template.markUserCreated();
 
-        return TemplateResponse.from(templateRepository.save(template));
+        Template savedTemplate = templateRepository.save(template);
+        ragTemplateIndexService.reindexTemplate(savedTemplate);
+        return TemplateResponse.from(savedTemplate);
     }
 
     @Transactional
@@ -78,6 +82,8 @@ public class TemplateService {
                 request.getSubjectTemplate(),
                 request.getBodyTemplate()
         );
+        template.markUserModified();
+        ragTemplateIndexService.reindexTemplate(template);
         return TemplateResponse.from(template);
     }
 

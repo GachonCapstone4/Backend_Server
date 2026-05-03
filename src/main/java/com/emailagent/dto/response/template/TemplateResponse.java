@@ -36,6 +36,14 @@ public class TemplateResponse extends BaseResponse {
     @JsonProperty("body_template")
     private String bodyTemplate;
 
+    private String origin;
+
+    @JsonProperty("user_modified")
+    private boolean userModified;
+
+    @JsonProperty("index_status")
+    private String indexStatus;
+
     @JsonProperty("accuracy_score")
     private BigDecimal accuracyScore;
 
@@ -52,6 +60,9 @@ public class TemplateResponse extends BaseResponse {
                 .variantLabel(template.getVariantLabel())
                 .subjectTemplate(template.getSubjectTemplate())
                 .bodyTemplate(template.getBodyTemplate())
+                .origin(template.getOrigin() != null ? template.getOrigin().name() : null)
+                .userModified(template.isUserModified())
+                .indexStatus(template.getIndexStatus() != null ? template.getIndexStatus().name() : null)
                 .accuracyScore(template.getAccuracyScore())
                 .createdAt(template.getCreatedAt())
                 .build();

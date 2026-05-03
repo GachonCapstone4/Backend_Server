@@ -25,6 +25,8 @@ public interface EmailTemplateRecommendationRepository extends JpaRepository<Ema
 
     void deleteByUser_UserIdAndEmail_EmailId(Long userId, Long emailId);
 
+    void deleteByTemplate_TemplateIdIn(List<Long> templateIds);
+
     Optional<EmailTemplateRecommendation> findByEmail_EmailIdAndTemplate_TemplateId(Long emailId, Long templateId);
 
     @Modifying

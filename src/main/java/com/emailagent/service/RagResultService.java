@@ -4,6 +4,7 @@ import com.emailagent.domain.entity.Category;
 import com.emailagent.domain.entity.Email;
 import com.emailagent.domain.entity.EmailTemplateRecommendation;
 import com.emailagent.domain.entity.Template;
+import com.emailagent.domain.enums.TemplateOrigin;
 import com.emailagent.exception.ResourceNotFoundException;
 import com.emailagent.rabbitmq.dto.RagDraftGenerateResultDTO;
 import com.emailagent.rabbitmq.dto.RagTemplateMatchResultDTO;
@@ -96,7 +97,12 @@ public class RagResultService {
 
     private Template upsertTemplate(Long userId, Category category, RagDraftGenerateResultDTO.TemplateItem item) {
         Template template = templateRepository
-                .findByUser_UserIdAndCategory_CategoryIdAndVariantLabel(userId, category.getCategoryId(), item.getVariantLabel())
+                .findFirstByUser_UserIdAndCategory_CategoryIdAndVariantLabelAndOriginAndUserModifiedFalseOrderByCreatedAtDesc(
+                        userId,
+                        category.getCategoryId(),
+                        item.getVariantLabel(),
+                        TemplateOrigin.AI_GENERATED
+                )
                 .map(existing -> {
                     existing.update(
                             item.getTitle(),
@@ -104,6 +110,7 @@ public class RagResultService {
                             item.getSubjectTemplate(),
                             item.getBodyTemplate()
                     );
+                    existing.markAiGenerated();
                     return existing;
                 })
                 .orElseGet(() -> Template.builder()
@@ -115,6 +122,7 @@ public class RagResultService {
                         .subjectTemplate(item.getSubjectTemplate())
                         .bodyTemplate(item.getBodyTemplate())
                         .build());
+        template.markAiGenerated();
 
         return templateRepository.save(template);
     }
@@ -138,11 +146,14 @@ public class RagResultService {
 
                     String variantLabel = template.getVariantLabel() != null ? template.getVariantLabel() : "일반형";
                     String templatePurpose = generated != null ? generated.getTemplatePurpose() : null;
+                    String canonicalText = buildCanonicalText(template, category, emailTone, variantLabel, templatePurpose);
+                    template.prepareIndexing(canonicalText);
                     return RagTemplateIndexRequestDTO.TemplateItem.builder()
                             .templateId(template.getTemplateId())
                             .title(template.getTitle())
                             .categoryName(category.getCategoryName())
                             .emailTone(emailTone)
+                            .canonicalText(canonicalText)
                             .metadata(
                                     RagTemplateIndexRequestDTO.Metadata.builder()
                                             .templatePurpose(templatePurpose)
@@ -161,11 +172,39 @@ public class RagResultService {
                 .payload(
                         RagTemplateIndexRequestDTO.Payload.builder()
                                 .templates(indexItems)
+                                .deleteTemplateIds(List.of())
                                 .build()
                 )
                 .build();
 
         ragPublisher.publishTemplateIndex(message);
+    }
+
+    private String buildCanonicalText(
+            Template template,
+            Category category,
+            String emailTone,
+            String variantLabel,
+            String templatePurpose
+    ) {
+        return """
+                제목: %s
+                카테고리: %s
+                유형: %s
+                목적: %s
+                어조: %s
+                메일 제목: %s
+                본문:
+                %s
+                """.formatted(
+                template.getTitle(),
+                category.getCategoryName(),
+                variantLabel,
+                templatePurpose != null ? templatePurpose : "미지정",
+                emailTone != null ? emailTone : "미지정",
+                template.getSubjectTemplate(),
+                template.getBodyTemplate()
+        ).trim();
     }
 
     @Transactional

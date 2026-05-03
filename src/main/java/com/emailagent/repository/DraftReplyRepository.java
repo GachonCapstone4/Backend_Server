@@ -47,4 +47,8 @@ public interface DraftReplyRepository extends JpaRepository<DraftReply, Long> {
     @Modifying
     @Query("DELETE FROM DraftReply d WHERE d.user.userId = :userId")
     void deleteByUser_UserId(@Param("userId") Long userId);
+
+    @Modifying
+    @Query("UPDATE DraftReply d SET d.template = null WHERE d.template.templateId IN :templateIds")
+    int clearTemplateReferences(@Param("templateIds") List<Long> templateIds);
 }

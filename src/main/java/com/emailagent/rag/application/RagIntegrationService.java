@@ -1,6 +1,7 @@
 package com.emailagent.rag.application;
 
 import com.emailagent.domain.entity.BusinessFaq;
+import com.emailagent.domain.entity.BusinessProfile;
 import com.emailagent.domain.entity.BusinessResource;
 import com.emailagent.domain.entity.Category;
 import com.emailagent.domain.entity.CategoryKeywordRule;
@@ -83,7 +84,35 @@ public class RagIntegrationService {
             String ragContext
     ) {
         return categories.stream()
-                .map(category -> requestInitialTemplateDraft(userId, category, request, ragContext))
+                .map(category -> requestTemplateDraft(
+                        userId,
+                        category,
+                        "generate",
+                        request.getIndustryType(),
+                        request.getEmailTone(),
+                        request.getCompanyDescription(),
+                        ragContext
+                ))
+                .toList();
+    }
+
+    public List<String> requestTemplateRegenerationDrafts(
+            Long userId,
+            List<Category> categories,
+            BusinessProfile profile,
+            String ragContext
+    ) {
+        String emailTone = profile.getEmailTone() != null ? profile.getEmailTone().name() : null;
+        return categories.stream()
+                .map(category -> requestTemplateDraft(
+                        userId,
+                        category,
+                        "regenerate",
+                        profile.getIndustryType(),
+                        emailTone,
+                        profile.getCompanyDescription(),
+                        ragContext
+                ))
                 .toList();
     }
 
@@ -121,10 +150,13 @@ public class RagIntegrationService {
         ragPublisher.publishTemplateMatch(payload);
     }
 
-    private String requestInitialTemplateDraft(
+    private String requestTemplateDraft(
             Long userId,
             Category category,
-            InitialTemplateGenerateRequest request,
+            String mode,
+            String industryType,
+            String emailTone,
+            String companyDescription,
             String ragContext
     ) {
         String requestId = UUID.randomUUID().toString();
@@ -134,13 +166,13 @@ public class RagIntegrationService {
                 .jobId(jobId)
                 .requestId(requestId)
                 .userId(userId)
-                .mode("generate")
+                .mode(mode)
                 .categoryId(category.getCategoryId())
                 .categoryName(category.getCategoryName())
                 .categoryKeywords(resolveCategoryKeywords(category.getCategoryName()))
-                .industryType(request.getIndustryType())
-                .emailTone(request.getEmailTone())
-                .companyDescription(request.getCompanyDescription())
+                .industryType(industryType)
+                .emailTone(emailTone)
+                .companyDescription(companyDescription)
                 .ragContext(ragContext)
                 .templateCount(3)
                 .build();

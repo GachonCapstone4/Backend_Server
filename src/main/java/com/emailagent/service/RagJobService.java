@@ -16,6 +16,7 @@ import com.emailagent.rabbitmq.dto.RagTemplateMatchResultDTO;
 import com.emailagent.rabbitmq.dto.RagTemplateIndexResultDTO;
 import com.emailagent.rabbitmq.event.SseEvent;
 import com.emailagent.repository.RagJobRepository;
+import com.emailagent.repository.TemplateRepository;
 import com.emailagent.repository.UserRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -41,6 +42,7 @@ public class RagJobService {
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final NotificationService notificationService;
+    private final TemplateRepository templateRepository;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void createKnowledgeIngestJob(RagKnowledgeIngestRequestDTO request) {
@@ -147,13 +149,33 @@ public class RagJobService {
 
         String payloadJson = toJson(result.getPayload());
         if ("SUCCESS".equalsIgnoreCase(result.getStatus())) {
+            updateTemplateIndexStatus(result, true);
             job.markCompleted("INDEXED", "템플릿 인덱싱이 완료되었습니다.", payloadJson);
         } else {
+            updateTemplateIndexStatus(result, false);
             String errorCode = result.getError() != null ? result.getError().getCode() : null;
             String errorMessage = result.getError() != null ? result.getError().getMessage() : null;
             job.markFailed("FAILED", "템플릿 인덱싱에 실패했습니다.", errorCode, errorMessage, payloadJson);
         }
         pushJobUpdate(job);
+    }
+
+    private void updateTemplateIndexStatus(RagTemplateIndexResultDTO result, boolean success) {
+        if (result.getPayload() == null || result.getPayload().getTemplateIds() == null) {
+            return;
+        }
+
+        for (Long templateId : result.getPayload().getTemplateIds()) {
+            templateRepository.findById(templateId)
+                    .filter(template -> template.getUser().getUserId().equals(result.getUserId()))
+                    .ifPresent(template -> {
+                        if (success) {
+                            template.markIndexed();
+                        } else {
+                            template.markIndexFailed();
+                        }
+                    });
+        }
     }
 
     @Transactional

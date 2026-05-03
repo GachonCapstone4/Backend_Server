@@ -1,9 +1,11 @@
 package com.emailagent.service;
 
 import com.emailagent.domain.entity.*;
+import com.emailagent.domain.enums.TemplateOrigin;
 import com.emailagent.dto.request.business.*;
 import com.emailagent.dto.response.business.*;
 import com.emailagent.exception.ResourceNotFoundException;
+import com.emailagent.rag.application.RagIntegrationService;
 import com.emailagent.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -11,7 +13,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -24,8 +28,13 @@ public class BusinessService {
     private final BusinessFaqRepository faqRepository;
     private final CategoryRepository categoryRepository;
     private final TemplateRepository templateRepository;
+    private final AutomationRuleRepository automationRuleRepository;
+    private final DraftReplyRepository draftReplyRepository;
+    private final EmailTemplateRecommendationRepository recommendationRepository;
     private final UserRepository userRepository;
     private final S3Service s3Service;
+    private final RagTemplateIndexService ragTemplateIndexService;
+    private final RagIntegrationService ragIntegrationService;
 
     @Value("${app.cloud.aws.s3.prefix}")
     private String s3Prefix;
@@ -258,29 +267,76 @@ public class BusinessService {
     // 템플릿 재생성
     // =============================================
 
-    @Transactional(readOnly = true)
+    @Transactional
     public TemplateRegenerateResponse regenerateTemplates(Long userId, TemplateRegenerateRequest request) {
-        int processingCount;
+        BusinessProfile profile = profileRepository.findByUser_UserId(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("비즈니스 프로필을 찾을 수 없습니다."));
 
+        List<Template> replaceableTemplates = resolveReplaceableTemplates(userId, request);
+        if (replaceableTemplates.isEmpty()) {
+            throw new IllegalArgumentException("재생성 가능한 템플릿이 없습니다.");
+        }
+
+        List<Long> templateIds = replaceableTemplates.stream()
+                .map(Template::getTemplateId)
+                .toList();
+        List<Category> categories = distinctCategories(replaceableTemplates);
+
+        ragTemplateIndexService.deleteTemplateIndexes(userId, templateIds);
+        detachTemplateReferences(templateIds);
+        templateRepository.deleteAll(replaceableTemplates);
+        templateRepository.flush();
+
+        String ragContext = buildRagContext(userId);
+        List<String> draftJobIds = ragIntegrationService.requestTemplateRegenerationDrafts(
+                userId,
+                categories,
+                profile,
+                ragContext
+        );
+
+        log.info(
+                "템플릿 재생성 요청: userId={}, deletedTemplates={}, categories={}, draftJobs={}",
+                userId,
+                templateIds.size(),
+                categories.size(),
+                draftJobIds.size()
+        );
+        return TemplateRegenerateResponse.of(draftJobIds.size());
+    }
+
+    private List<Template> resolveReplaceableTemplates(Long userId, TemplateRegenerateRequest request) {
+        List<Template> candidates;
         if (request.isRegenerateAll()) {
-            processingCount = templateRepository.findByUser_UserId(userId).size();
+            candidates = templateRepository.findByUser_UserId(userId);
         } else {
             List<Long> templateIds = request.getTemplateIds();
             if (templateIds == null || templateIds.isEmpty()) {
                 throw new IllegalArgumentException("재생성할 템플릿 ID를 지정해주세요.");
             }
-            processingCount = (int) templateIds.stream()
-                    .filter(id -> templateRepository.findById(id)
-                            .map(t -> t.getUser().getUserId().equals(userId))
-                            .orElse(false))
-                    .count();
+            candidates = templateRepository.findAllById(templateIds).stream()
+                    .filter(template -> template.getUser().getUserId().equals(userId))
+                    .toList();
         }
 
-        if (processingCount == 0) {
-            throw new IllegalArgumentException("재생성 가능한 템플릿이 없습니다.");
-        }
+        return candidates.stream()
+                .filter(this::isReplaceableGeneratedTemplate)
+                .toList();
+    }
 
-        log.info("템플릿 재생성 요청: userId={}, count={}", userId, processingCount);
-        return TemplateRegenerateResponse.of(processingCount);
+    private boolean isReplaceableGeneratedTemplate(Template template) {
+        return template.getOrigin() == TemplateOrigin.AI_GENERATED && !template.isUserModified();
+    }
+
+    private List<Category> distinctCategories(List<Template> templates) {
+        Map<Long, Category> categories = new LinkedHashMap<>();
+        templates.forEach(template -> categories.put(template.getCategory().getCategoryId(), template.getCategory()));
+        return List.copyOf(categories.values());
+    }
+
+    private void detachTemplateReferences(List<Long> templateIds) {
+        recommendationRepository.deleteByTemplate_TemplateIdIn(templateIds);
+        automationRuleRepository.clearTemplateReferences(templateIds);
+        draftReplyRepository.clearTemplateReferences(templateIds);
     }
 }
