@@ -36,15 +36,44 @@ public class InboxRecommendationsResponse {
         @JsonProperty("email_id")
         private Long emailId;
 
-        public static RecommendationItem from(EmailTemplateRecommendation recommendation) {
+        @JsonProperty("auto_completed_count")
+        private Integer autoCompletedCount;
+
+        @JsonProperty("auto_completed_keys")
+        private List<String> autoCompletedKeys;
+
+        @JsonProperty("auto_completed_values")
+        private java.util.Map<String, String> autoCompletedValues;
+
+        @JsonProperty("required_input_count")
+        private Integer requiredInputCount;
+
+        @JsonProperty("required_input_keys")
+        private List<String> requiredInputKeys;
+
+        public static RecommendationItem from(
+                EmailTemplateRecommendation recommendation,
+                String subject,
+                String body,
+                Integer autoCompletedCount,
+                List<String> autoCompletedKeys,
+                java.util.Map<String, String> autoCompletedValues,
+                Integer requiredInputCount,
+                List<String> requiredInputKeys
+        ) {
             Template template = recommendation.getTemplate();
             return RecommendationItem.builder()
                     .draftId(recommendation.getRecommendationId())
                     .templateTitle(template.getTitle())
-                    .subject(template.getSubjectTemplate())
-                    .body(template.getBodyTemplate())
+                    .subject(subject)
+                    .body(body)
                     .similarity(recommendation.getScore())
                     .emailId(recommendation.getEmail().getEmailId())
+                    .autoCompletedCount(autoCompletedCount)
+                    .autoCompletedKeys(autoCompletedKeys)
+                    .autoCompletedValues(autoCompletedValues)
+                    .requiredInputCount(requiredInputCount)
+                    .requiredInputKeys(requiredInputKeys)
                     .build();
         }
     }
