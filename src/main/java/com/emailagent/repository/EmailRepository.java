@@ -43,6 +43,21 @@ public interface EmailRepository extends JpaRepository<Email, Long> {
                                    @Param("start") LocalDateTime start,
                                    @Param("end") LocalDateTime end);
 
+    // 대시보드 - 실제 처리 완료된 이메일 수 (처리 시점 기준)
+    @Query("""
+            SELECT COUNT(e) FROM Email e
+            WHERE e.user.userId = :userId
+              AND e.updatedAt >= :start
+              AND e.updatedAt < :end
+              AND e.status IN (
+                com.emailagent.domain.enums.EmailStatus.PROCESSED,
+                com.emailagent.domain.enums.EmailStatus.AUTO_SENT
+              )
+            """)
+    long countProcessedByUserIdAndUpdatedAtRange(@Param("userId") Long userId,
+                                                 @Param("start") LocalDateTime start,
+                                                 @Param("end") LocalDateTime end);
+
     // 최근 이메일 N건 (대시보드용, N+1 방지) — DELETED 제외
     @Query("SELECT e FROM Email e WHERE e.user.userId = :userId AND e.status != com.emailagent.domain.enums.EmailStatus.DELETED ORDER BY e.receivedAt DESC")
     List<Email> findRecentByUserId(@Param("userId") Long userId, Pageable pageable);

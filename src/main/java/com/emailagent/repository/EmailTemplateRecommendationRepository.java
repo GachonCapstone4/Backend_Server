@@ -42,6 +42,19 @@ public interface EmailTemplateRecommendationRepository extends JpaRepository<Ema
             @Param("emailId") Long emailId
     );
 
+    @Query("""
+            SELECT COUNT(DISTINCT r.email.emailId)
+            FROM EmailTemplateRecommendation r
+            WHERE r.user.userId = :userId
+              AND r.email.status = com.emailagent.domain.enums.EmailStatus.PENDING_REVIEW
+              AND NOT EXISTS (
+                SELECT d FROM DraftReply d
+                WHERE d.user.userId = :userId
+                  AND d.email.emailId = r.email.emailId
+              )
+            """)
+    long countPendingReviewRecommendationsWithoutDraft(@Param("userId") Long userId);
+
     @Modifying
     @Query("DELETE FROM EmailTemplateRecommendation r WHERE r.user.userId = :userId")
     void deleteByUser_UserId(@Param("userId") Long userId);

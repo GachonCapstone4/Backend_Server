@@ -29,6 +29,7 @@ public class DashboardService {
     private final DraftReplyRepository draftReplyRepository;
     private final IntegrationRepository integrationRepository;
     private final CalendarEventRepository calendarEventRepository;
+    private final EmailTemplateRecommendationRepository recommendationRepository;
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
@@ -40,12 +41,13 @@ public class DashboardService {
     public SummaryResponse getSummary(Long userId) {
         LocalDate today = LocalDate.now();
 
-        // 오늘/어제 수신 이메일 수
-        long todayCount    = countEmails(userId, today, today.plusDays(1));
-        long yesterdayCount = countEmails(userId, today.minusDays(1), today);
+        // 오늘/어제 실제 처리 완료 이메일 수
+        long todayCount = countProcessedEmails(userId, today, today.plusDays(1));
+        long yesterdayCount = countProcessedEmails(userId, today.minusDays(1), today);
 
-        // 검토 대기 초안 수
-        long pendingDrafts = draftReplyRepository.countByUser_UserIdAndStatus(userId, DraftStatus.PENDING_REVIEW);
+        // 검토 대기가 필요한 초안/추천 수
+        long pendingDrafts = draftReplyRepository.countByUser_UserIdAndStatus(userId, DraftStatus.PENDING_REVIEW)
+                + recommendationRepository.countPendingReviewRecommendationsWithoutDraft(userId);
 
         // 이번 주 / 지난 주 템플릿 매칭률
         LocalDate monday      = today.with(DayOfWeek.MONDAY);
@@ -174,6 +176,10 @@ public class DashboardService {
 
     private long countEmails(Long userId, LocalDate from, LocalDate to) {
         return emailRepository.countByUserIdAndDateRange(userId, from.atStartOfDay(), to.atStartOfDay());
+    }
+
+    private long countProcessedEmails(Long userId, LocalDate from, LocalDate to) {
+        return emailRepository.countProcessedByUserIdAndUpdatedAtRange(userId, from.atStartOfDay(), to.atStartOfDay());
     }
 
     private double calcMatchingRate(Long userId, LocalDate from, LocalDate to) {

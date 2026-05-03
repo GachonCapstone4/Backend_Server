@@ -1,9 +1,13 @@
 package com.emailagent.service;
 
+import com.emailagent.domain.converter.DisplayConfigConverter;
 import com.emailagent.domain.entity.User;
+import com.emailagent.domain.value.UserDisplayConfig;
+import com.emailagent.dto.request.auth.DisplaySettingsRequest;
 import com.emailagent.dto.request.auth.PasswordChangeRequest;
 import com.emailagent.dto.request.auth.UserProfileUpdateRequest;
 import com.emailagent.dto.response.auth.BaseResponse;
+import com.emailagent.dto.response.auth.DisplaySettingsResponse;
 import com.emailagent.dto.response.auth.EmailAvailabilityResponse;
 import com.emailagent.dto.response.auth.UserProfileResponse;
 import com.emailagent.dto.response.auth.UserUpdateResponse;
@@ -55,6 +59,21 @@ public class UserService {
         }
         user.updatePassword(passwordEncoder.encode(request.getNewPassword()));
         return new BaseResponse();
+    }
+
+    @Transactional(readOnly = true)
+    public DisplaySettingsResponse getDisplaySettings(Long userId) {
+        User user = findActiveUser(userId);
+        UserDisplayConfig configs = DisplayConfigConverter.normalize(user.getDisplayConfigs());
+        return new DisplaySettingsResponse(configs);
+    }
+
+    @Transactional
+    public DisplaySettingsResponse updateDisplaySettings(Long userId, DisplaySettingsRequest request) {
+        User user = findActiveUser(userId);
+        UserDisplayConfig configs = DisplayConfigConverter.normalize(request.toConfig());
+        user.updateDisplayConfigs(configs);
+        return new DisplaySettingsResponse(configs);
     }
 
     private User findActiveUser(Long userId) {
