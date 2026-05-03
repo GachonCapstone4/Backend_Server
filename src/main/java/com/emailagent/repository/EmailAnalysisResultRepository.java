@@ -14,12 +14,16 @@ public interface EmailAnalysisResultRepository extends JpaRepository<EmailAnalys
 
     Optional<EmailAnalysisResult> findByEmail_EmailId(Long emailId);
 
-    // 카테고리가 매칭된 이메일 수 (템플릿 매칭률 계산용)
+    // 카테고리/의도/도메인 중 하나라도 매칭된 이메일 수 (템플릿 매칭률 계산용)
     @Query("""
             SELECT COUNT(ar) FROM EmailAnalysisResult ar
             JOIN ar.email e
             WHERE e.user.userId = :userId
-              AND ar.category IS NOT NULL
+              AND (
+                ar.category IS NOT NULL
+                OR ar.intent IS NOT NULL
+                OR ar.domain IS NOT NULL
+              )
               AND e.receivedAt >= :start
               AND e.receivedAt < :end
             """)
@@ -27,16 +31,24 @@ public interface EmailAnalysisResultRepository extends JpaRepository<EmailAnalys
                                           @Param("start") LocalDateTime start,
                                           @Param("end") LocalDateTime end);
 
-    // 주간 카테고리별 이메일 수 (N+1 방지: category FETCH JOIN)
+    // 주간 카테고리별 이메일 수. category가 비어있는 기존 분석 결과는 intent/domain 기준으로 묶는다.
     @Query("""
-            SELECT ar.category.categoryName, COUNT(ar), ar.category.color
+            SELECT COALESCE(c.categoryName, ar.intent, ar.domain, '미분류'),
+                   COUNT(ar),
+                   COALESCE(c.color, '#94A3B8')
             FROM EmailAnalysisResult ar
             JOIN ar.email e
-            JOIN ar.category c
+            LEFT JOIN ar.category c
             WHERE e.user.userId = :userId
+              AND (
+                c.categoryId IS NOT NULL
+                OR ar.intent IS NOT NULL
+                OR ar.domain IS NOT NULL
+              )
               AND e.receivedAt >= :start
               AND e.receivedAt < :end
-            GROUP BY ar.category.categoryId, ar.category.categoryName, ar.category.color
+            GROUP BY COALESCE(c.categoryName, ar.intent, ar.domain, '미분류'),
+                     COALESCE(c.color, '#94A3B8')
             ORDER BY COUNT(ar) DESC
             """)
     List<Object[]> findWeeklyCategorySummary(@Param("userId") Long userId,
