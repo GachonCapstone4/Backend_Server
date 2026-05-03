@@ -27,6 +27,9 @@ public class RagTemplateIndexRequestDTO {
     public static class Payload {
         @JsonProperty("templates")
         private List<TemplateItem> templates;
+
+        @JsonProperty("delete_template_ids")
+        private List<Long> deleteTemplateIds;
     }
 
     @Getter
@@ -40,6 +43,9 @@ public class RagTemplateIndexRequestDTO {
 
         @JsonProperty("category_name")
         private String categoryName;
+
+        @JsonProperty("canonical_text")
+        private String canonicalText;
 
         @JsonProperty("email_tone")
         private String emailTone;

@@ -31,6 +31,51 @@ public class RagTemplateIndexService {
         uniqueCategories.values().forEach(this::reindexCategory);
     }
 
+    public void reindexTemplate(Template template) {
+        reindexTemplates(List.of(template));
+    }
+
+    public void deleteTemplateIndexes(Long userId, List<Long> templateIds) {
+        if (templateIds == null || templateIds.isEmpty()) {
+            return;
+        }
+
+        String requestId = "template-delete-" + userId + "-" + System.currentTimeMillis();
+        ragPublisher.publishTemplateIndex(RagTemplateIndexRequestDTO.builder()
+                .requestId(requestId)
+                .userId(userId)
+                .payload(RagTemplateIndexRequestDTO.Payload.builder()
+                        .templates(List.of())
+                        .deleteTemplateIds(templateIds)
+                        .build())
+                .build());
+    }
+
+    public void reindexTemplates(List<Template> templates) {
+        if (templates == null || templates.isEmpty()) {
+            return;
+        }
+
+        Long userId = templates.get(0).getUser().getUserId();
+        String requestId = "template-index-" + userId + "-" + System.currentTimeMillis();
+        String emailTone = profileRepository.findByUser_UserId(userId)
+                .map(profile -> profile.getEmailTone() != null ? profile.getEmailTone().name() : null)
+                .orElse(null);
+
+        List<RagTemplateIndexRequestDTO.TemplateItem> indexItems = templates.stream()
+                .map(template -> toIndexItem(template, template.getCategory(), emailTone))
+                .toList();
+
+        ragPublisher.publishTemplateIndex(RagTemplateIndexRequestDTO.builder()
+                .requestId(requestId)
+                .userId(userId)
+                .payload(RagTemplateIndexRequestDTO.Payload.builder()
+                        .templates(indexItems)
+                        .deleteTemplateIds(List.of())
+                        .build())
+                .build());
+    }
+
     public void reindexCategory(Category category) {
         List<Template> templates = templateRepository.findByCategory_CategoryId(category.getCategoryId());
         if (templates.isEmpty()) {
@@ -51,6 +96,7 @@ public class RagTemplateIndexService {
                 .userId(category.getUser().getUserId())
                 .payload(RagTemplateIndexRequestDTO.Payload.builder()
                         .templates(indexItems)
+                        .deleteTemplateIds(List.of())
                         .build())
                 .build());
     }
@@ -61,11 +107,14 @@ public class RagTemplateIndexService {
             String emailTone
     ) {
         String variantLabel = template.getVariantLabel() != null ? template.getVariantLabel() : "일반형";
+        String canonicalText = buildCanonicalText(template, category, emailTone, variantLabel);
+        template.prepareIndexing(canonicalText);
 
         return RagTemplateIndexRequestDTO.TemplateItem.builder()
                 .templateId(template.getTemplateId())
                 .title(template.getTitle())
                 .categoryName(category.getCategoryName())
+                .canonicalText(canonicalText)
                 .emailTone(emailTone)
                 .metadata(RagTemplateIndexRequestDTO.Metadata.builder()
                         .searchSummary(variantLabel + " 템플릿")
@@ -73,6 +122,30 @@ public class RagTemplateIndexService {
                         .recommendedSituations(List.of())
                         .build())
                 .build();
+    }
+
+    private String buildCanonicalText(
+            Template template,
+            Category category,
+            String emailTone,
+            String variantLabel
+    ) {
+        return """
+                제목: %s
+                카테고리: %s
+                유형: %s
+                어조: %s
+                메일 제목: %s
+                본문:
+                %s
+                """.formatted(
+                template.getTitle(),
+                category.getCategoryName(),
+                variantLabel,
+                emailTone != null ? emailTone : "미지정",
+                template.getSubjectTemplate(),
+                template.getBodyTemplate()
+        ).trim();
     }
 
     public List<String> toSemanticKeywords(Category category, String variantLabel) {

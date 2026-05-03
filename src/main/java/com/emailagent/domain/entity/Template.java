@@ -1,5 +1,7 @@
 package com.emailagent.domain.entity;
 
+import com.emailagent.domain.enums.TemplateIndexStatus;
+import com.emailagent.domain.enums.TemplateOrigin;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -52,6 +54,26 @@ public class Template {
     @Column(name = "body_template", nullable = false, columnDefinition = "TEXT")
     private String bodyTemplate;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "origin", length = 30)
+    @Builder.Default
+    private TemplateOrigin origin = TemplateOrigin.USER_CREATED;
+
+    @Column(name = "user_modified")
+    @Builder.Default
+    private boolean userModified = false;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "index_status", length = 30)
+    @Builder.Default
+    private TemplateIndexStatus indexStatus = TemplateIndexStatus.NOT_INDEXED;
+
+    @Column(name = "canonical_text", columnDefinition = "TEXT")
+    private String canonicalText;
+
+    @Column(name = "indexed_at")
+    private LocalDateTime indexedAt;
+
     @Column(name = "accuracy_score", precision = 5, scale = 2)
     private BigDecimal accuracyScore;
 
@@ -76,6 +98,35 @@ public class Template {
         this.variantLabel = variantLabel;
         this.subjectTemplate = subjectTemplate;
         this.bodyTemplate = bodyTemplate;
+    }
+
+    public void markAiGenerated() {
+        this.origin = TemplateOrigin.AI_GENERATED;
+        this.userModified = false;
+    }
+
+    public void markUserCreated() {
+        this.origin = TemplateOrigin.USER_CREATED;
+        this.userModified = false;
+    }
+
+    public void markUserModified() {
+        this.userModified = true;
+    }
+
+    public void prepareIndexing(String canonicalText) {
+        this.canonicalText = canonicalText;
+        this.indexStatus = TemplateIndexStatus.INDEXING;
+        this.indexedAt = null;
+    }
+
+    public void markIndexed() {
+        this.indexStatus = TemplateIndexStatus.INDEXED;
+        this.indexedAt = LocalDateTime.now();
+    }
+
+    public void markIndexFailed() {
+        this.indexStatus = TemplateIndexStatus.FAILED;
     }
 
     public void incrementUseCount() {

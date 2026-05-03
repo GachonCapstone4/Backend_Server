@@ -56,4 +56,8 @@ public interface AutomationRuleRepository extends JpaRepository<AutomationRule, 
     @Modifying
     @Query("DELETE FROM AutomationRule ar WHERE ar.user.userId = :userId")
     void deleteByUser_UserId(@Param("userId") Long userId);
+
+    @Modifying
+    @Query("UPDATE AutomationRule ar SET ar.template = null WHERE ar.template.templateId IN :templateIds")
+    int clearTemplateReferences(@Param("templateIds") List<Long> templateIds);
 }

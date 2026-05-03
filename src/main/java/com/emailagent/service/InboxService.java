@@ -28,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -53,8 +54,11 @@ public class InboxService {
     private final BusinessService businessService;
     private final GmailApiService gmailApiService;
     private final GoogleCalendarApiService googleCalendarApiService;
+    private final TemplateService templateService;
 
-    private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{(\\w+)\\}\\}");
+    private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{\\s*([^{}]+?)\\s*\\}\\}");
+    private static final DateTimeFormatter TEMPLATE_DATE_TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     // =============================================
     // GET /api/inbox
@@ -166,14 +170,17 @@ public class InboxService {
 
     @Transactional(readOnly = true)
     public InboxRecommendationsResponse getRecommendations(Long userId, Long emailId, int topK) {
-        findEmailForUser(emailId, userId);
+        Email email = findEmailForUser(emailId, userId);
+        EmailAnalysisResult analysisResult = emailAnalysisResultRepository.findByEmail_EmailId(emailId)
+                .orElse(null);
+        Map<String, Object> templateVariables = buildTemplateVariables(email, analysisResult);
 
         int limit = Math.max(1, topK);
         List<InboxRecommendationsResponse.RecommendationItem> drafts = recommendationRepository
                 .findByUserIdAndEmailIdOrderByRank(userId, emailId)
                 .stream()
                 .limit(limit)
-                .map(InboxRecommendationsResponse.RecommendationItem::from)
+                .map(recommendation -> buildRecommendationItem(recommendation, templateVariables))
                 .toList();
 
         return InboxRecommendationsResponse.builder()
@@ -231,12 +238,15 @@ public class InboxService {
     public InboxActionResponse processReply(Long userId, Long emailId, ReplyActionRequest request) {
         Email email = findEmailForUser(emailId, userId);
         DraftReply draft = draftReplyRepository.findByEmailIdAndUserId(emailId, userId)
-                .orElseThrow(() -> new ResourceNotFoundException("초안을 찾을 수 없습니다."));
+                .orElse(null);
 
         String action = request.getAction().toUpperCase();
 
         String message = switch (action) {
             case "SEND" -> {
+                if (draft == null) {
+                    throw new ResourceNotFoundException("초안을 찾을 수 없습니다.");
+                }
                 // AI가 생성한 초안 그대로 발송
                 // 발송 실패 시 EmailSendFailedException → 트랜잭션 롤백 (상태 변경 취소)
                 gmailApiService.sendEmail(
@@ -256,29 +266,60 @@ public class InboxService {
                 if (request.getContent() == null || request.getContent().isBlank()) {
                     throw new IllegalArgumentException("EDIT_SEND 액션은 content가 필요합니다.");
                 }
+                String replySubject = resolveReplySubject(email, draft, request.getSubject());
                 // 사용자가 수정한 내용으로 발송
                 gmailApiService.sendEmail(
                         userId,
                         email.getSenderEmail(),
-                        draft.getDraftSubject() != null ? draft.getDraftSubject() : "Re: " + email.getSubject(),
+                        replySubject,
                         request.getContent()
                 );
                 email.updateStatus(EmailStatus.PROCESSED);
-                draft.updateStatus(DraftStatus.EDITED);
-                if (draft.getTemplate() != null) {
-                    draft.getTemplate().incrementUseCount();
+                if (draft == null) {
+                    draftReplyRepository.save(DraftReply.builder()
+                            .user(email.getUser())
+                            .email(email)
+                            .status(DraftStatus.EDITED)
+                            .draftSubject(replySubject)
+                            .draftContent(request.getContent())
+                            .build());
+                } else {
+                    draft.updateContent(replySubject, request.getContent());
+                    draft.updateStatus(DraftStatus.EDITED);
+                    if (draft.getTemplate() != null) {
+                        draft.getTemplate().incrementUseCount();
+                    }
                 }
                 yield "수정된 답장이 발송되었습니다.";
             }
             case "SKIP" -> {
                 email.updateStatus(EmailStatus.PROCESSED);
-                draft.updateStatus(DraftStatus.SKIPPED);
+                if (draft == null) {
+                    draftReplyRepository.save(DraftReply.builder()
+                            .user(email.getUser())
+                            .email(email)
+                            .status(DraftStatus.SKIPPED)
+                            .draftSubject("Re: " + email.getSubject())
+                            .build());
+                } else {
+                    draft.updateStatus(DraftStatus.SKIPPED);
+                }
                 yield "답장이 건너뛰어졌습니다.";
             }
             default -> throw new IllegalArgumentException("알 수 없는 action: " + request.getAction());
         };
 
         return InboxActionResponse.builder().message(message).build();
+    }
+
+    private String resolveReplySubject(Email email, DraftReply draft, String requestedSubject) {
+        if (requestedSubject != null && !requestedSubject.isBlank()) {
+            return requestedSubject.trim();
+        }
+        if (draft != null && draft.getDraftSubject() != null && !draft.getDraftSubject().isBlank()) {
+            return draft.getDraftSubject();
+        }
+        return "Re: " + email.getSubject();
     }
 
     // =============================================
@@ -450,7 +491,7 @@ public class InboxService {
         Set<String> allKeys = new LinkedHashSet<>();
         Matcher matcher = PLACEHOLDER.matcher(combinedTemplate);
         while (matcher.find()) {
-            allKeys.add(matcher.group(1));
+            allKeys.add(matcher.group(1).trim());
         }
 
         Map<String, Object> entities = (ar != null && ar.getEntitiesJson() != null)
@@ -469,5 +510,100 @@ public class InboxService {
                 .requiredInputCount(requiredKeys.size())
                 .requiredInputKeys(requiredKeys)
                 .build();
+    }
+
+    private InboxRecommendationsResponse.RecommendationItem buildRecommendationItem(
+            EmailTemplateRecommendation recommendation,
+            Map<String, Object> templateVariables
+    ) {
+        Template template = recommendation.getTemplate();
+        String rawSubject = Optional.ofNullable(template.getSubjectTemplate()).orElse("");
+        String rawBody = Optional.ofNullable(template.getBodyTemplate()).orElse("");
+        VariableCompletion completion = analyzeVariableCompletion(rawSubject + rawBody, templateVariables);
+
+        return InboxRecommendationsResponse.RecommendationItem.from(
+                recommendation,
+                templateService.fillTemplate(rawSubject, templateVariables),
+                templateService.fillTemplate(rawBody, templateVariables),
+                completion.autoCompletedKeys().size(),
+                completion.autoCompletedKeys(),
+                completion.autoCompletedValues(),
+                completion.requiredInputKeys().size(),
+                completion.requiredInputKeys()
+        );
+    }
+
+    private Map<String, Object> buildTemplateVariables(
+            Email email,
+            EmailAnalysisResult analysisResult
+    ) {
+        Map<String, Object> variables = new LinkedHashMap<>();
+
+        putIfPresent(variables, "고객명", resolveCustomerName(email));
+        putIfPresent(variables, "문의주제", analysisResult != null ? analysisResult.getIntent() : null);
+        putIfPresent(variables, "문의요약", analysisResult != null ? analysisResult.getSummaryText() : null);
+        putIfPresent(
+                variables,
+                "수신일자",
+                email.getReceivedAt() != null ? TEMPLATE_DATE_TIME_FORMATTER.format(email.getReceivedAt()) : null
+        );
+        putIfPresent(variables, "담당자명", email.getUser() != null ? email.getUser().getName() : null);
+
+        return variables;
+    }
+
+    private VariableCompletion analyzeVariableCompletion(String templateText, Map<String, Object> variables) {
+        Set<String> allKeys = new LinkedHashSet<>();
+        Matcher matcher = PLACEHOLDER.matcher(templateText);
+        while (matcher.find()) {
+            allKeys.add(matcher.group(1).trim());
+        }
+
+        List<String> autoCompletedKeys = allKeys.stream()
+                .filter(key -> hasValue(variables.get(key)))
+                .toList();
+        List<String> requiredInputKeys = allKeys.stream()
+                .filter(key -> !hasValue(variables.get(key)))
+                .toList();
+
+        Map<String, String> autoCompletedValues = new LinkedHashMap<>();
+        autoCompletedKeys.forEach(key -> autoCompletedValues.put(key, variables.get(key).toString()));
+
+        return new VariableCompletion(autoCompletedKeys, autoCompletedValues, requiredInputKeys);
+    }
+
+    private String resolveCustomerName(Email email) {
+        if (hasText(email.getSenderName())) {
+            return email.getSenderName().trim();
+        }
+
+        String senderEmail = email.getSenderEmail();
+        if (!hasText(senderEmail)) {
+            return null;
+        }
+
+        int atIndex = senderEmail.indexOf('@');
+        return atIndex > 0 ? senderEmail.substring(0, atIndex) : senderEmail;
+    }
+
+    private void putIfPresent(Map<String, Object> variables, String key, Object value) {
+        if (hasValue(value)) {
+            variables.put(key, value);
+        }
+    }
+
+    private boolean hasValue(Object value) {
+        return value != null && hasText(value.toString());
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private record VariableCompletion(
+            List<String> autoCompletedKeys,
+            Map<String, String> autoCompletedValues,
+            List<String> requiredInputKeys
+    ) {
     }
 }

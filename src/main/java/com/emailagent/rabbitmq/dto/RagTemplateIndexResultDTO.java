@@ -34,6 +34,9 @@ public class RagTemplateIndexResultDTO {
         @JsonProperty("indexed_template_count")
         private Integer indexedTemplateCount;
 
+        @JsonProperty("deleted_template_count")
+        private Integer deletedTemplateCount;
+
         @JsonProperty("template_ids")
         private List<Long> templateIds;
     }
