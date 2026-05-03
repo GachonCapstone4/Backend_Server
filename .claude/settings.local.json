@@ -23,7 +23,9 @@
       "Bash(find /c -name \"java.exe\" -path \"*/jdk*\")",
       "Bash(JAVA_HOME=\"C:/Program Files/Java/jdk-21.0.10\" ./mvnw.cmd compile -q)",
       "Bash(mvn clean:*)",
-      "Bash(xargs cat *)"
+      "Bash(xargs cat *)",
+      "Bash(Get-ChildItem -Path \"E:\\\\USER\\\\Backend_Server\" -Recurse -Directory)",
+      "Bash(Select-Object FullName)"
     ]
   }
 }

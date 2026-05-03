@@ -2,11 +2,14 @@ package com.emailagent.controller;
 
 import com.emailagent.dto.response.auth.BaseResponse;
 import com.emailagent.dto.response.notification.NotificationResponse;
+import com.emailagent.dto.response.notification.NotificationSettingsResponse;
 import com.emailagent.security.CurrentUser;
 import com.emailagent.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/notifications")
@@ -35,5 +38,19 @@ public class NotificationController {
     @PatchMapping("/read-all")
     public ResponseEntity<BaseResponse> markAllAsRead(@CurrentUser Long userId) {
         return ResponseEntity.ok(notificationService.markAllAsRead(userId));
+    }
+
+    // GET /api/notifications/settings
+    @GetMapping("/settings")
+    public ResponseEntity<NotificationSettingsResponse> getSettings(@CurrentUser Long userId) {
+        return ResponseEntity.ok(notificationService.getSettings(userId));
+    }
+
+    // PATCH /api/notifications/settings
+    @PatchMapping("/settings")
+    public ResponseEntity<NotificationSettingsResponse> updateSettings(
+            @CurrentUser Long userId,
+            @RequestBody Map<String, Boolean> settings) {
+        return ResponseEntity.ok(notificationService.updateSettings(userId, settings));
     }
 }

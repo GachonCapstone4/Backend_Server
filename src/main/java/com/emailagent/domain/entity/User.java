@@ -1,5 +1,6 @@
 package com.emailagent.domain.entity;
 
+import com.emailagent.domain.converter.NotificationConfigConverter;
 import com.emailagent.domain.enums.UserRole;
 import jakarta.persistence.*;
 import lombok.*;
@@ -8,6 +9,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.List;
 
 @Entity
@@ -63,6 +65,13 @@ public class User {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    // 알림 설정 (JSON): {"NEW_EMAIL": true, "DRAFT_PENDING": false, ...}
+    // null이면 NotificationConfigConverter가 모든 타입 true인 기본값으로 복원
+    @Column(name = "notification_configs", columnDefinition = "JSON")
+    @Convert(converter = NotificationConfigConverter.class)
+    @Builder.Default
+    private Map<String, Boolean> notificationConfigs = NotificationConfigConverter.defaultConfigs();
+
     // 연관관계
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
@@ -101,5 +110,9 @@ public class User {
     public void clearResetCode() {
         this.resetCode = null;
         this.resetCodeExpiresAt = null;
+    }
+
+    public void updateNotificationConfigs(Map<String, Boolean> configs) {
+        this.notificationConfigs = configs;
     }
 }

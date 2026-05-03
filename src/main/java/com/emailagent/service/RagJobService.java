@@ -2,6 +2,7 @@ package com.emailagent.service;
 
 import com.emailagent.domain.entity.RagJob;
 import com.emailagent.domain.entity.User;
+import com.emailagent.domain.enums.NotificationType;
 import com.emailagent.domain.enums.RagJobStatus;
 import com.emailagent.dto.response.onboarding.OnboardingTemplateJobStatusResponse;
 import com.emailagent.exception.ResourceNotFoundException;
@@ -39,6 +40,7 @@ public class RagJobService {
     private final UserRepository userRepository;
     private final ObjectMapper objectMapper;
     private final ApplicationEventPublisher eventPublisher;
+    private final NotificationService notificationService;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void createKnowledgeIngestJob(RagKnowledgeIngestRequestDTO request) {
@@ -178,6 +180,14 @@ public class RagJobService {
         String payloadJson = toJson(result.getPayload());
         if ("SUCCESS".equalsIgnoreCase(result.getStatus())) {
             job.markCompleted("GENERATED", "카테고리별 맞춤 템플릿 생성이 완료되었습니다.", payloadJson);
+            // 초안 생성 완료 알림
+            notificationService.createNotification(
+                    job.getUser(),
+                    NotificationType.DRAFT_PENDING,
+                    "초안 생성 완료",
+                    "카테고리별 맞춤 초안이 생성되었습니다. 검토해 주세요.",
+                    null
+            );
         } else {
             String errorCode = result.getError() != null ? result.getError().getCode() : null;
             String errorMessage = result.getError() != null ? result.getError().getMessage() : null;

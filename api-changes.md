@@ -865,3 +865,104 @@ ALTER TABLE integrations ADD UNIQUE KEY (connected_email);
 |----------|--------|------|
 | `APP_FRONTEND_SIGNUP_SUCCESS_PATH` | `/app/dashboard` | 자동 로그인 후 redirect 경로 |
 | `APP_FRONTEND_SIGNUP_REGISTER_PATH` | `/auth/google/register` | 신규 유저 회원가입 페이지 경로 |
+
+---
+
+## [2026-05-03] 알림(Notification) 시스템 백엔드 로직 구현
+
+### DB 변경
+
+```sql
+-- users 테이블에 알림 설정 컬럼 추가
+ALTER TABLE users ADD COLUMN notification_configs JSON NULL;
+```
+
+신규 가입 유저는 서버에서 자동으로 전체 true 값을 저장합니다.
+기존 유저는 NULL 상태로 유지되며, 서버에서 NULL을 전체 허용(모든 알림 활성)으로 처리합니다.
+
+---
+
+### 알림 생성 트리거 — 백엔드 내부 동작
+
+기존에는 `notifications` 테이블에 데이터가 쌓이지 않았으나, 이번 배포부터 아래 이벤트 발생 시 자동으로 INSERT됩니다.  
+`users.notification_configs`에서 해당 타입이 `false`로 설정된 경우에는 INSERT를 건너뜁니다.
+
+| 트리거 조건 | 생성되는 알림 type | 설명 |
+|---|---|---|
+| AI 이메일 분류 완료 | `NEW_EMAIL` | 항상 생성. `related_id` = `email_id` |
+| AI 분류 완료 + 일정 감지 | `EVENT_PENDING` | `schedule_detected=true` 인 경우 추가 생성 |
+| AI 분류 완료 + 미분류 | `UNCLASSIFIED_EMAIL` | `domain`, `intent` 모두 null인 경우 생성 |
+| Outbox 최종 처리 실패 (3회 재시도 초과) | `EMAIL_DISCONNECTED` | `related_id` = `email_id` |
+| RAG 초안 생성 완료 (`draft.generate` SUCCESS) | `DRAFT_PENDING` | 검토 대기 알림 |
+
+---
+
+### 신규 API — 알림 설정 조회
+
+#### GET /api/notifications/settings
+
+**인증**: 필요 (JWT Bearer)
+
+**응답 (200)**
+
+```json
+{
+  "content_type": "application/json",
+  "success": true,
+  "result_code": 200,
+  "result_req": "",
+  "NEW_EMAIL": true,
+  "DRAFT_PENDING": true,
+  "EMAIL_DISCONNECTED": true,
+  "UNCLASSIFIED_EMAIL": true,
+  "EVENT_PENDING": true,
+  "AUTO_SEND_SUMMARY": true
+}
+```
+
+---
+
+### 신규 API — 알림 설정 변경
+
+#### PATCH /api/notifications/settings
+
+**인증**: 필요 (JWT Bearer)
+
+**요청** — 변경할 항목만 포함하면 됩니다. 포함되지 않은 항목은 기존 값 유지.
+
+```json
+{
+  "DRAFT_PENDING": false,
+  "EVENT_PENDING": false
+}
+```
+
+**유효한 키 목록**
+
+| 키 | 설명 |
+|---|---|
+| `NEW_EMAIL` | 새 이메일 수신 알림 |
+| `DRAFT_PENDING` | 검토 대기 초안 알림 |
+| `EMAIL_DISCONNECTED` | 이메일 계정/처리 오류 알림 |
+| `UNCLASSIFIED_EMAIL` | 미분류 이메일 알림 |
+| `EVENT_PENDING` | 캘린더 등록 대기 알림 |
+| `AUTO_SEND_SUMMARY` | 자동 발송 요약 알림 (미구현, 설정값만 저장) |
+
+알 수 없는 키는 서버에서 무시합니다.
+
+**응답 (200)** — 변경 후 전체 설정 반환 (GET과 동일한 구조)
+
+```json
+{
+  "content_type": "application/json",
+  "success": true,
+  "result_code": 200,
+  "result_req": "",
+  "NEW_EMAIL": true,
+  "DRAFT_PENDING": false,
+  "EMAIL_DISCONNECTED": true,
+  "UNCLASSIFIED_EMAIL": true,
+  "EVENT_PENDING": false,
+  "AUTO_SEND_SUMMARY": true
+}
+```
