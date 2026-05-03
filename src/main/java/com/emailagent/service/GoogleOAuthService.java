@@ -29,10 +29,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -60,6 +63,7 @@ public class GoogleOAuthService {
 
     // 회원가입 임시 저장 TTL (10분)
     private static final long PENDING_TTL_MINUTES = 10;
+    private static final Set<String> LOOPBACK_FRONTEND_HOSTS = Set.of("localhost", "127.0.0.1", "::1");
 
     private final IntegrationRepository integrationRepository;
     private final UserRepository userRepository;
@@ -84,6 +88,12 @@ public class GoogleOAuthService {
     @Value("${jwt.expiration}")
     private long jwtExpiration;
 
+    @Value("${app.frontend.base-url:http://localhost:5173}")
+    private String frontendBaseUrl;
+
+    @Value("#{'${app.frontend.allowed-origins:https://capstone.studylink.click}'.split(',')}")
+    private List<String> allowedFrontendOrigins;
+
     // ── 1. Google OAuth 인증 URL 생성 ──────────────────────────────────────────
 
     /**
@@ -92,7 +102,14 @@ public class GoogleOAuthService {
      */
     @Transactional(readOnly = true)
     public AuthorizationUrlResponse getAuthorizationUrl(Long userId) {
-        String stateJwt = jwtTokenProvider.generateOAuthStateToken(userId);
+        return getAuthorizationUrl(userId, null);
+    }
+
+    @Transactional(readOnly = true)
+    public AuthorizationUrlResponse getAuthorizationUrl(Long userId, String frontendOrigin) {
+        String stateJwt = jwtTokenProvider.generateOAuthStateToken(
+                userId,
+                resolveFrontendOrigin(frontendOrigin));
         String url = buildOAuthUrl(stateJwt);
         return new AuthorizationUrlResponse(url);
     }
@@ -102,7 +119,12 @@ public class GoogleOAuthService {
      * state JWT에 mode=SIGNUP만 포함 (userId 없음).
      */
     public AuthorizationUrlResponse getSignupAuthorizationUrl() {
-        String stateJwt = jwtTokenProvider.generateOAuthStateTokenForSignup();
+        return getSignupAuthorizationUrl(null);
+    }
+
+    public AuthorizationUrlResponse getSignupAuthorizationUrl(String frontendOrigin) {
+        String stateJwt = jwtTokenProvider.generateOAuthStateTokenForSignup(
+                resolveFrontendOrigin(frontendOrigin));
         String url = buildOAuthUrl(stateJwt);
         return new AuthorizationUrlResponse(url);
     }
@@ -368,6 +390,67 @@ public class GoogleOAuthService {
                 .set("prompt", "consent")
                 .setState(stateJwt)
                 .build();
+    }
+
+    private String resolveFrontendOrigin(String requestedOrigin) {
+        return normalizeOrigin(requestedOrigin)
+                .filter(this::isAllowedFrontendOrigin)
+                .or(() -> normalizeOrigin(frontendBaseUrl))
+                .orElse(frontendBaseUrl);
+    }
+
+    private boolean isAllowedFrontendOrigin(String origin) {
+        if (normalizeOrigin(frontendBaseUrl).filter(origin::equals).isPresent()) {
+            return true;
+        }
+
+        boolean listed = allowedFrontendOrigins.stream()
+                .map(this::normalizeOrigin)
+                .flatMap(Optional::stream)
+                .anyMatch(origin::equals);
+
+        if (listed) {
+            return true;
+        }
+
+        try {
+            URI uri = new URI(origin);
+            String host = uri.getHost();
+            return "http".equals(uri.getScheme())
+                    && host != null
+                    && LOOPBACK_FRONTEND_HOSTS.contains(host)
+                    && uri.getPort() > 0;
+        } catch (URISyntaxException e) {
+            return false;
+        }
+    }
+
+    private Optional<String> normalizeOrigin(String origin) {
+        if (origin == null || origin.isBlank()) {
+            return Optional.empty();
+        }
+
+        try {
+            URI uri = new URI(origin.trim());
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            if (scheme == null || host == null) {
+                return Optional.empty();
+            }
+
+            if (!"http".equals(scheme) && !"https".equals(scheme)) {
+                return Optional.empty();
+            }
+
+            int port = uri.getPort();
+            String normalized = scheme + "://" + host.toLowerCase();
+            if (port != -1) {
+                normalized += ":" + port;
+            }
+            return Optional.of(normalized);
+        } catch (URISyntaxException e) {
+            return Optional.empty();
+        }
     }
 
     private GoogleTokenResponse exchangeCode(String code) throws IOException {
