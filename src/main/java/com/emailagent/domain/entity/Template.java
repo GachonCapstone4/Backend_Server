@@ -61,7 +61,7 @@ public class Template {
 
     @Column(name = "user_modified")
     @Builder.Default
-    private boolean userModified = false;
+    private Boolean userModified = false;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "index_status", length = 30)
@@ -112,6 +112,10 @@ public class Template {
 
     public void markUserModified() {
         this.userModified = true;
+    }
+
+    public boolean isUserModified() {
+        return Boolean.TRUE.equals(userModified);
     }
 
     public void prepareIndexing(String canonicalText) {
