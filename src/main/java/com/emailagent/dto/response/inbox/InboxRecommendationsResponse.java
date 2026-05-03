@@ -24,6 +24,9 @@ public class InboxRecommendationsResponse {
         @JsonProperty("template_title")
         private String templateTitle;
 
+        @JsonProperty("template_id")
+        private Long templateId;
+
         @JsonProperty("subject")
         private String subject;
 
@@ -65,6 +68,7 @@ public class InboxRecommendationsResponse {
             return RecommendationItem.builder()
                     .draftId(recommendation.getRecommendationId())
                     .templateTitle(template.getTitle())
+                    .templateId(template.getTemplateId())
                     .subject(subject)
                     .body(body)
                     .similarity(recommendation.getScore())
