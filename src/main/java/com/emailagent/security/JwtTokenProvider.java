@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import java.security.Key;
 import java.util.Date;
+import java.util.Optional;
 
 @Slf4j
 @Component
@@ -16,6 +17,8 @@ public class JwtTokenProvider {
     private final Key key;
     private final long expiration;
     private final long refreshExpiration;
+    private static final String OAUTH_STATE_PURPOSE = "google_oauth_state";
+    private static final String FRONTEND_ORIGIN_CLAIM = "frontend_origin";
 
     public JwtTokenProvider(
             @Value("${jwt.secret}") String secret,
@@ -54,26 +57,42 @@ public class JwtTokenProvider {
      * payload: userId + purpose = "google_oauth_state"
      */
     public String generateOAuthStateToken(Long userId) {
-        return Jwts.builder()
+        return generateOAuthStateToken(userId, null);
+    }
+
+    public String generateOAuthStateToken(Long userId, String frontendOrigin) {
+        JwtBuilder builder = Jwts.builder()
                 .setSubject(String.valueOf(userId))
-                .claim("purpose", "google_oauth_state")
+                .claim("purpose", OAUTH_STATE_PURPOSE)
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + 10 * 60 * 1000L)) // 10분
+                .setExpiration(new Date(System.currentTimeMillis() + 10 * 60 * 1000L)); // 10분
+
+        if (frontendOrigin != null && !frontendOrigin.isBlank()) {
+            builder.claim(FRONTEND_ORIGIN_CLAIM, frontendOrigin);
+        }
+
+        return builder
                 .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
     }
 
-    /**
-     * Google OAuth CSRF 방지용 state JWT 생성 — 회원가입 전용 (만료: 10분)
-     * payload: subject="signup", mode="SIGNUP", purpose="google_oauth_state"
-     */
     public String generateOAuthStateTokenForSignup() {
-        return Jwts.builder()
+        return generateOAuthStateTokenForSignup(null);
+    }
+
+    public String generateOAuthStateTokenForSignup(String frontendOrigin) {
+        JwtBuilder builder = Jwts.builder()
                 .setSubject("signup")
-                .claim("purpose", "google_oauth_state")
+                .claim("purpose", OAUTH_STATE_PURPOSE)
                 .claim("mode", "SIGNUP")
                 .setIssuedAt(new Date())
-                .setExpiration(new Date(System.currentTimeMillis() + 10 * 60 * 1000L))
+                .setExpiration(new Date(System.currentTimeMillis() + 10 * 60 * 1000L));
+
+        if (frontendOrigin != null && !frontendOrigin.isBlank()) {
+            builder.claim(FRONTEND_ORIGIN_CLAIM, frontendOrigin);
+        }
+
+        return builder
                 .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
     }
@@ -85,10 +104,23 @@ public class JwtTokenProvider {
     public String getOAuthStateMode(String token) {
         Claims claims = getClaims(token);
         String purpose = claims.get("purpose", String.class);
-        if (!"google_oauth_state".equals(purpose)) {
+        if (!OAUTH_STATE_PURPOSE.equals(purpose)) {
             throw new io.jsonwebtoken.JwtException("유효하지 않은 OAuth state 토큰입니다.");
         }
         return "SIGNUP".equals(claims.get("mode", String.class)) ? "SIGNUP" : "INTEGRATION";
+    }
+
+    public Optional<String> getOAuthStateFrontendOrigin(String token) {
+        Claims claims = getClaims(token);
+        String purpose = claims.get("purpose", String.class);
+        if (!OAUTH_STATE_PURPOSE.equals(purpose)) {
+            throw new io.jsonwebtoken.JwtException("유효하지 않은 OAuth state 토큰입니다.");
+        }
+
+        String frontendOrigin = claims.get(FRONTEND_ORIGIN_CLAIM, String.class);
+        return frontendOrigin == null || frontendOrigin.isBlank()
+                ? Optional.empty()
+                : Optional.of(frontendOrigin);
     }
 
     /**
@@ -98,7 +130,7 @@ public class JwtTokenProvider {
     public Long getOAuthStateUserId(String token) {
         Claims claims = getClaims(token);
         String purpose = claims.get("purpose", String.class);
-        if (!"google_oauth_state".equals(purpose)) {
+        if (!OAUTH_STATE_PURPOSE.equals(purpose)) {
             throw new io.jsonwebtoken.JwtException("유효하지 않은 OAuth state 토큰입니다.");
         }
         return Long.parseLong(claims.getSubject());

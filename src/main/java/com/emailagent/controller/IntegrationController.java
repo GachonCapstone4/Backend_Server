@@ -32,8 +32,10 @@ public class IntegrationController {
     private String oauthCallbackPath;
 
     @GetMapping("/google/authorization-url")
-    public ResponseEntity<AuthorizationUrlResponse> getAuthorizationUrl(@CurrentUser Long userId) {
-        return ResponseEntity.ok(googleOAuthService.getAuthorizationUrl(userId));
+    public ResponseEntity<AuthorizationUrlResponse> getAuthorizationUrl(
+            @CurrentUser Long userId,
+            @RequestParam(value = "frontend_origin", required = false) String frontendOrigin) {
+        return ResponseEntity.ok(googleOAuthService.getAuthorizationUrl(userId, frontendOrigin));
     }
 
     /**
@@ -44,6 +46,8 @@ public class IntegrationController {
     public ResponseEntity<Void> handleCallback(
             @RequestParam String code,
             @RequestParam String state) {
+        String frontendOrigin = resolveStateFrontendOrigin(state);
+
         try {
             OAuthCallbackResult result = googleOAuthService.handleCallback(code, state);
 
@@ -51,19 +55,22 @@ public class IntegrationController {
                 case INTEGRATION_DONE -> buildOAuthCallbackUrl(
                         "google_oauth=success"
                                 + "&gmail_connected=" + result.isGmailConnected()
-                                + "&calendar_connected=" + result.isCalendarConnected()
+                                + "&calendar_connected=" + result.isCalendarConnected(),
+                        frontendOrigin
                 );
 
                 case AUTO_LOGIN -> buildOAuthCallbackUrl(
                         "google_oauth=auto_login"
-                                + "&token=" + encode(result.getJwt())
+                                + "&token=" + encode(result.getJwt()),
+                        frontendOrigin
                 );
 
                 case PENDING_REGISTRATION -> buildOAuthCallbackUrl(
                         "google_oauth=pending_registration"
                                 + "&temp_token=" + encode(result.getTempToken())
                                 + "&email=" + encode(result.getEmail())
-                                + "&name=" + encode(result.getName())
+                                + "&name=" + encode(result.getName()),
+                        frontendOrigin
                 );
             };
 
@@ -85,7 +92,8 @@ public class IntegrationController {
             String errorRedirect = buildOAuthCallbackUrl(
                     "google_oauth=error"
                             + "&mode=" + (isSignupMode ? "signup" : "integration")
-                            + "&message=" + message
+                            + "&message=" + message,
+                    frontendOrigin
             );
 
             return ResponseEntity.status(302)
@@ -95,12 +103,25 @@ public class IntegrationController {
     }
 
     private String buildOAuthCallbackUrl(String queryString) {
+        return buildOAuthCallbackUrl(queryString, frontendBaseUrl);
+    }
+
+    private String buildOAuthCallbackUrl(String queryString, String frontendOrigin) {
         String separator = oauthCallbackPath.contains("?") ? "&" : "?";
-        return frontendBaseUrl + oauthCallbackPath + separator + queryString;
+        return frontendOrigin + oauthCallbackPath + separator + queryString;
     }
 
     private String encode(String value) {
         return URLEncoder.encode(value != null ? value : "", StandardCharsets.UTF_8);
+    }
+
+    private String resolveStateFrontendOrigin(String state) {
+        try {
+            return jwtTokenProvider.getOAuthStateFrontendOrigin(state)
+                    .orElse(frontendBaseUrl);
+        } catch (Exception e) {
+            return frontendBaseUrl;
+        }
     }
 
     @GetMapping("/me")

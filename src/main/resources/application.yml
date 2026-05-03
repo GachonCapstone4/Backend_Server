@@ -53,6 +53,7 @@ app:
     upload-dir: C:/dev/uploads   # 파일 업로드 저장 경로
   frontend:
     base-url: ${APP_FRONTEND_BASE_URL:http://localhost:5173}
+    allowed-origins: ${APP_FRONTEND_ALLOWED_ORIGINS:https://capstone.studylink.click}
     oauth-callback-path: ${APP_FRONTEND_OAUTH_CALLBACK_PATH:/oauth/google/callback}
   rabbitmq:
     exchange:

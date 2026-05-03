@@ -74,8 +74,9 @@ public class AuthController {
 
     /** GET /api/auth/google/signup-url — Google 회원가입용 OAuth URL 반환 (비로그인) */
     @GetMapping("/google/signup-url")
-    public ResponseEntity<AuthorizationUrlResponse> getGoogleSignupUrl() {
-        return ResponseEntity.ok(googleOAuthService.getSignupAuthorizationUrl());
+    public ResponseEntity<AuthorizationUrlResponse> getGoogleSignupUrl(
+            @RequestParam(value = "frontend_origin", required = false) String frontendOrigin) {
+        return ResponseEntity.ok(googleOAuthService.getSignupAuthorizationUrl(frontendOrigin));
     }
 
     /** POST /api/auth/google/signup — Google 회원가입 Step 2: temp_token + 비밀번호 → 계정 생성 */
