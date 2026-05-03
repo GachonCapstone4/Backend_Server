@@ -46,14 +46,17 @@ public class GoogleOAuthService {
             "email",
             "profile",
             "https://www.googleapis.com/auth/gmail.readonly",
-            "https://www.googleapis.com/auth/calendar"
+            "https://www.googleapis.com/auth/gmail.send",
+            "https://www.googleapis.com/auth/calendar.events"
     );
 
     // 콜백 시 반드시 부여되어야 하는 필수 스코프 (없으면 연동 실패 처리)
-    private static final String GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+    private static final String GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+    private static final String GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
     // 선택 스코프 — 사용자가 거부해도 연동은 성공 (is_calendar_connected=false)
-    private static final String CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
+    private static final String CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events";
+    private static final String LEGACY_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
 
     // 회원가입 임시 저장 TTL (10분)
     private static final long PENDING_TTL_MINUTES = 10;
@@ -131,8 +134,8 @@ public class GoogleOAuthService {
 
         String grantedScopesRaw = tokenResponse.getScope();
         List<String> grantedScopes = Arrays.asList(grantedScopesRaw.split(" "));
-        boolean isGmailConnected = grantedScopes.contains(GMAIL_SCOPE);
-        boolean isCalendarConnected = grantedScopes.contains(CALENDAR_SCOPE);
+        boolean isGmailConnected = hasRequiredGmailScopes(grantedScopes);
+        boolean isCalendarConnected = hasCalendarScope(grantedScopes);
 
         if (!isGmailConnected) {
             throw new InsufficientScopeException("필수 메일 권한이 누락되었습니다. 다시 동의해 주세요.");
@@ -193,9 +196,9 @@ public class GoogleOAuthService {
 
         String grantedScopesRaw = tokenResponse.getScope();
         List<String> grantedScopes = Arrays.asList(grantedScopesRaw.split(" "));
-        boolean isCalendarConnected = grantedScopes.contains(CALENDAR_SCOPE);
+        boolean isCalendarConnected = hasCalendarScope(grantedScopes);
 
-        if (!grantedScopes.contains(GMAIL_SCOPE)) {
+        if (!hasRequiredGmailScopes(grantedScopes)) {
             throw new InsufficientScopeException("필수 메일 권한이 누락되었습니다. 다시 동의해 주세요.");
         }
 
@@ -376,6 +379,14 @@ public class GoogleOAuthService {
                 code,
                 redirectUri
         ).execute();
+    }
+
+    private boolean hasRequiredGmailScopes(List<String> grantedScopes) {
+        return grantedScopes.contains(GMAIL_READ_SCOPE) && grantedScopes.contains(GMAIL_SEND_SCOPE);
+    }
+
+    private boolean hasCalendarScope(List<String> grantedScopes) {
+        return grantedScopes.contains(CALENDAR_EVENTS_SCOPE) || grantedScopes.contains(LEGACY_CALENDAR_SCOPE);
     }
 
     /**
