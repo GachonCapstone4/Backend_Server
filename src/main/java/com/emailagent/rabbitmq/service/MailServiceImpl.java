@@ -4,6 +4,7 @@ import com.emailagent.domain.entity.CalendarEvent;
 import com.emailagent.domain.entity.Email;
 import com.emailagent.domain.entity.EmailAnalysisResult;
 import com.emailagent.domain.entity.Outbox;
+import com.emailagent.domain.enums.NotificationType;
 import com.emailagent.domain.enums.OutboxStatus;
 import com.emailagent.dto.response.admin.operation.AdminJobDetailResponse;
 import com.emailagent.dto.response.admin.operation.AdminJobListResponse;
@@ -16,6 +17,7 @@ import com.emailagent.repository.CalendarEventRepository;
 import com.emailagent.repository.EmailAnalysisResultRepository;
 import com.emailagent.repository.EmailRepository;
 import com.emailagent.repository.OutboxRepository;
+import com.emailagent.service.NotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
@@ -54,6 +56,7 @@ public class MailServiceImpl implements MailService {
     private final RagIntegrationService ragIntegrationService;
     private final ApplicationEventPublisher eventPublisher;
     private final CalendarEventRepository calendarEventRepository;
+    private final NotificationService notificationService;
 
     // ===================================================
     // 상태 전이 메서드
@@ -147,6 +150,37 @@ public class MailServiceImpl implements MailService {
 
         log.info("[MailService] classify 완료 — outboxId={}, emailId={}", result.getOutboxId(), emailId);
 
+        // 이메일 분류 완료 알림
+        notificationService.createNotification(
+                email.getUser(),
+                NotificationType.NEW_EMAIL,
+                email.getSubject() != null ? email.getSubject() : "새 이메일",
+                "이메일 분류가 완료되었습니다.",
+                emailId
+        );
+
+        // 일정 감지 알림 (schedule_detected=true 인 경우)
+        if (result.isScheduleDetected()) {
+            notificationService.createNotification(
+                    email.getUser(),
+                    NotificationType.EVENT_PENDING,
+                    "일정이 감지되었습니다",
+                    "이메일에서 일정이 감지되어 캘린더 등록 대기 중입니다.",
+                    emailId
+            );
+        }
+
+        // 미분류 이메일 알림 (domain, intent 모두 null인 경우)
+        if (result.getDomain() == null && result.getIntent() == null) {
+            notificationService.createNotification(
+                    email.getUser(),
+                    NotificationType.UNCLASSIFIED_EMAIL,
+                    "미분류 이메일",
+                    "이메일을 분류하지 못했습니다. 직접 확인해 주세요.",
+                    emailId
+            );
+        }
+
         eventPublisher.publishEvent(new SseEvent(
                 this,
                 email.getUser().getUserId(),
@@ -161,6 +195,14 @@ public class MailServiceImpl implements MailService {
         outboxRepository.findById(outboxId).ifPresent(outbox -> {
             outbox.markAsFailed(reason);
             log.error("[MailService] Outbox FAILED — outboxId={}, reason={}", outboxId, reason);
+            // AI 처리 최종 실패 시 계정/처리 오류 알림
+            notificationService.createNotification(
+                    outbox.getEmail().getUser(),
+                    NotificationType.EMAIL_DISCONNECTED,
+                    "이메일 처리 오류",
+                    "이메일 처리 중 오류가 발생했습니다. 관리자에게 문의하세요.",
+                    outbox.getEmail().getEmailId()
+            );
         });
     }
 
