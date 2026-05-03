@@ -115,4 +115,12 @@ public class User {
     public void updateNotificationConfigs(Map<String, Boolean> configs) {
         this.notificationConfigs = configs;
     }
+
+    // 탈퇴 계정 재가입: 비밀번호·이름 갱신, 활성화, 온보딩 초기화
+    public void reactivate(String encodedPassword, String name) {
+        this.isActive = true;
+        this.password = encodedPassword;
+        this.name = name;
+        this.onboardingCompleted = false;
+    }
 }

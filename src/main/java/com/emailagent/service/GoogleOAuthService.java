@@ -64,6 +64,7 @@ public class GoogleOAuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final GoogleApiClientProvider googleApiClientProvider;
     private final PasswordEncoder passwordEncoder;
+    private final UserDataCleanupService userDataCleanupService;
 
     @Value("${app.google.client-id}")
     private String clientId;
@@ -204,19 +205,16 @@ public class GoogleOAuthService {
         String externalAccountId = payload.getSubject();
         LocalDateTime tokenExpiresAt = LocalDateTime.now().plusSeconds(tokenResponse.getExpiresInSeconds());
 
-        // 회원가입 경로에서는 기존 계정을 자동 로그인시키지 않는다.
+        // Case 1: Integration에 이미 있고 해당 유저가 활성 상태 → 회원가입 중단
         Optional<Integration> existingIntegration = integrationRepository.findByConnectedEmail(gmailAddress);
-        if (existingIntegration.isPresent()) {
-            log.info("[Google 회원가입] 이미 연동된 계정으로 회원가입 시도: email={}", gmailAddress);
+        if (existingIntegration.isPresent() && existingIntegration.get().getUser().isActive()) {
+            log.info("[Google 회원가입] 이미 연동된 활성 계정으로 회원가입 시도: email={}", gmailAddress);
             throw new IllegalStateException("이미 가입된 회원입니다. 로그인 화면에서 로그인해 주세요.");
         }
 
-        // Case 2: Users에만 있음 (일반 가입자) → 회원가입 중단
+        // Case 2: Users에만 있고 활성 상태 → 회원가입 중단 (탈퇴 계정은 재가입 허용)
         Optional<User> existingUser = userRepository.findByEmail(gmailAddress);
-        if (existingUser.isPresent()) {
-            if (!existingUser.get().isActive()) {
-                throw new IllegalStateException("비활성화된 계정입니다.");
-            }
+        if (existingUser.isPresent() && existingUser.get().isActive()) {
             log.info("[Google 회원가입] 이미 가입된 이메일로 회원가입 시도: email={}", gmailAddress);
             throw new IllegalStateException("이미 가입된 회원입니다. 로그인 화면에서 로그인해 주세요.");
         }
@@ -258,27 +256,66 @@ public class GoogleOAuthService {
             throw new IllegalArgumentException("회원가입 세션이 만료되었습니다. 다시 시도해 주세요.");
         }
 
-        // 동시 요청 방어: 이미 가입된 이메일인지 최종 확인
-        if (userRepository.existsByEmail(pending.getGmailAddress())) {
+        LocalDateTime tokenExpiresAt = pending.getTokenExpiresAt();
+
+        // 탈퇴 계정 재가입: 기존 User가 비활성 상태인 경우 재활성화
+        Optional<User> existingOpt = userRepository.findByEmail(pending.getGmailAddress());
+        if (existingOpt.isPresent()) {
+            User existing = existingOpt.get();
+            if (existing.isActive()) {
+                // processSignupCallback 이후 동시 요청으로 활성화된 경우
+                pendingRepository.delete(pending);
+                throw new IllegalArgumentException("이미 가입된 이메일입니다.");
+            }
+            // 탈퇴 계정 재가입: 기존 데이터 초기화 후 재활성화
+            userDataCleanupService.clearAllUserData(existing.getUserId());
+            existing.reactivate(passwordEncoder.encode(request.getPassword()), pending.getName());
+
+            // Integration upsert: cleanup으로 삭제됐으므로 항상 신규 생성
+            Integration integ = integrationRepository.findByUser_UserId(existing.getUserId())
+                    .map(i -> {
+                        i.updateTokens(
+                                pending.getAccessToken(), pending.getRefreshToken(),
+                                tokenExpiresAt, pending.getGrantedScopes(),
+                                pending.getGmailAddress(), pending.getExternalAccountId(),
+                                true, pending.isCalendarConnected());
+                        return i;
+                    })
+                    .orElseGet(() -> integrationRepository.save(Integration.builder()
+                            .user(existing)
+                            .connectedEmail(pending.getGmailAddress())
+                            .externalAccountId(pending.getExternalAccountId())
+                            .accessToken(pending.getAccessToken())
+                            .refreshToken(pending.getRefreshToken())
+                            .tokenExpiresAt(tokenExpiresAt)
+                            .grantedScopes(pending.getGrantedScopes())
+                            .isGmailConnected(true)
+                            .isCalendarConnected(pending.isCalendarConnected())
+                            .syncStatus(SyncStatus.CONNECTED)
+                            .lastSyncedAt(LocalDateTime.now())
+                            .build()));
+
+            registerWatch(integ);
             pendingRepository.delete(pending);
-            throw new IllegalArgumentException("이미 가입된 이메일입니다.");
+            log.info("[Google 회원가입] 탈퇴 계정 재활성화 완료: userId={}, email={}", existing.getUserId(), existing.getEmail());
+            String reactivatedToken = jwtTokenProvider.generateAccessToken(existing.getUserId(), existing.getEmail());
+            return new TokenLoginResponse(reactivatedToken, jwtExpiration);
         }
 
-        // User 생성 (이메일 = Gmail 주소, 이름 = Google 계정 이름)
+        // 신규 가입
         User user = userRepository.save(User.builder()
                 .email(pending.getGmailAddress())
                 .password(passwordEncoder.encode(request.getPassword()))
                 .name(pending.getName())
                 .build());
 
-        // Integration 생성
         Integration integration = integrationRepository.save(Integration.builder()
                 .user(user)
                 .connectedEmail(pending.getGmailAddress())
                 .externalAccountId(pending.getExternalAccountId())
                 .accessToken(pending.getAccessToken())
                 .refreshToken(pending.getRefreshToken())
-                .tokenExpiresAt(pending.getTokenExpiresAt())
+                .tokenExpiresAt(tokenExpiresAt)
                 .grantedScopes(pending.getGrantedScopes())
                 .isGmailConnected(true)
                 .isCalendarConnected(pending.isCalendarConnected())
@@ -287,7 +324,7 @@ public class GoogleOAuthService {
                 .build());
 
         registerWatch(integration);
-        pendingRepository.delete(pending); // 재사용 방지
+        pendingRepository.delete(pending);
 
         log.info("[Google 회원가입] 신규 계정 생성 완료: userId={}, email={}", user.getUserId(), user.getEmail());
         String accessToken = jwtTokenProvider.generateAccessToken(user.getUserId(), user.getEmail());

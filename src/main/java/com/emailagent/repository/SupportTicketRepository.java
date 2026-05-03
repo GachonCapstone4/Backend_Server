@@ -4,6 +4,7 @@ import com.emailagent.domain.entity.SupportTicket;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -43,4 +44,8 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, Lo
     @Query(value = "SELECT t FROM SupportTicket t JOIN FETCH t.user WHERE t.user.userId = :userId AND t.status = :status ORDER BY t.createdAt DESC",
            countQuery = "SELECT COUNT(t) FROM SupportTicket t WHERE t.user.userId = :userId AND t.status = :status")
     Page<SupportTicket> findByUserIdAndStatusWithUserOrderByCreatedAtDesc(@Param("userId") Long userId, @Param("status") String status, Pageable pageable);
+
+    @Modifying
+    @Query("DELETE FROM SupportTicket t WHERE t.user.userId = :userId")
+    void deleteByUser_UserId(@Param("userId") Long userId);
 }

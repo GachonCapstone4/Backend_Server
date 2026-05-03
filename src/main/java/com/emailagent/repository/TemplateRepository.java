@@ -4,6 +4,7 @@ import com.emailagent.domain.entity.Template;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -60,4 +61,8 @@ public interface TemplateRepository extends JpaRepository<Template, Long> {
             ORDER BY template_count DESC
             """, nativeQuery = true)
     List<Object[]> findCategoryStatistics();
+
+    @Modifying
+    @Query("DELETE FROM Template t WHERE t.user.userId = :userId")
+    void deleteByUser_UserId(@Param("userId") Long userId);
 }

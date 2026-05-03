@@ -2,6 +2,7 @@ package com.emailagent.repository;
 
 import com.emailagent.domain.entity.CalendarEvent;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -41,4 +42,8 @@ public interface CalendarEventRepository extends JpaRepository<CalendarEvent, Lo
     List<CalendarEvent> findByPeriod(@Param("userId") Long userId,
                                      @Param("startDate") LocalDateTime startDate,
                                      @Param("endDate") LocalDateTime endDate);
+
+    @Modifying
+    @Query("DELETE FROM CalendarEvent ce WHERE ce.user.userId = :userId")
+    void deleteByUser_UserId(@Param("userId") Long userId);
 }
