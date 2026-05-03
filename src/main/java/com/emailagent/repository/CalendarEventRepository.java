@@ -18,6 +18,7 @@ public interface CalendarEventRepository extends JpaRepository<CalendarEvent, Lo
             LEFT JOIN FETCH ce.email
             WHERE ce.user.userId = :userId
               AND ce.startDatetime >= :from
+              AND ce.status NOT IN ('REJECTED', 'CANCELLED')
             ORDER BY ce.startDatetime ASC
             """)
     List<CalendarEvent> findUpcoming(@Param("userId") Long userId,

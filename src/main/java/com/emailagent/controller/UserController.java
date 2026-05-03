@@ -1,9 +1,11 @@
 package com.emailagent.controller;
 
+import com.emailagent.dto.request.auth.DisplaySettingsRequest;
 import com.emailagent.dto.request.auth.PasswordChangeRequest;
 import com.emailagent.dto.request.auth.SignupRequest;
 import com.emailagent.dto.request.auth.UserProfileUpdateRequest;
 import com.emailagent.dto.response.auth.BaseResponse;
+import com.emailagent.dto.response.auth.DisplaySettingsResponse;
 import com.emailagent.dto.response.auth.EmailAvailabilityResponse;
 import com.emailagent.dto.response.auth.SignupResponse;
 import com.emailagent.dto.response.auth.UserProfileResponse;
@@ -58,5 +60,17 @@ public class UserController {
     public ResponseEntity<EmailAvailabilityResponse> checkEmailAvailability(
             @RequestParam String email) {
         return ResponseEntity.ok(userService.checkEmailAvailability(email));
+    }
+
+    @GetMapping("/display-settings")
+    public ResponseEntity<DisplaySettingsResponse> getDisplaySettings(@CurrentUser Long userId) {
+        return ResponseEntity.ok(userService.getDisplaySettings(userId));
+    }
+
+    @PatchMapping("/display-settings")
+    public ResponseEntity<DisplaySettingsResponse> updateDisplaySettings(
+            @CurrentUser Long userId,
+            @RequestBody DisplaySettingsRequest request) {
+        return ResponseEntity.ok(userService.updateDisplaySettings(userId, request));
     }
 }

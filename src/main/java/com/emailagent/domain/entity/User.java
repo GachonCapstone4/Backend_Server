@@ -1,7 +1,9 @@
 package com.emailagent.domain.entity;
 
 import com.emailagent.domain.converter.NotificationConfigConverter;
+import com.emailagent.domain.converter.DisplayConfigConverter;
 import com.emailagent.domain.enums.UserRole;
+import com.emailagent.domain.value.UserDisplayConfig;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
@@ -72,6 +74,12 @@ public class User {
     @Builder.Default
     private Map<String, Boolean> notificationConfigs = NotificationConfigConverter.defaultConfigs();
 
+    // 화면 설정 (JSON): 대시보드 위젯 노출 여부와 화면 테마를 사용자별로 저장
+    @Column(name = "display_configs", columnDefinition = "JSON")
+    @Convert(converter = DisplayConfigConverter.class)
+    @Builder.Default
+    private UserDisplayConfig displayConfigs = DisplayConfigConverter.defaultConfig();
+
     // 연관관계
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     @Builder.Default
@@ -114,6 +122,10 @@ public class User {
 
     public void updateNotificationConfigs(Map<String, Boolean> configs) {
         this.notificationConfigs = configs;
+    }
+
+    public void updateDisplayConfigs(UserDisplayConfig configs) {
+        this.displayConfigs = configs;
     }
 
     // 탈퇴 계정 재가입: 비밀번호·이름 갱신, 활성화, 온보딩 초기화
