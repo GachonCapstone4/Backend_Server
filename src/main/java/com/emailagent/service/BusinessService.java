@@ -208,12 +208,15 @@ public class BusinessService {
 
     @Transactional
     public CategoryResponse createCategory(Long userId, CategoryRequest request) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("사용자를 찾을 수 없습니다."));
-
         if (categoryRepository.existsByUser_UserIdAndCategoryName(userId, request.getCategoryName())) {
             throw new IllegalArgumentException("이미 존재하는 카테고리입니다: " + request.getCategoryName());
         }
+
+        if (!userRepository.existsById(userId)) {
+            throw new ResourceNotFoundException("사용자를 찾을 수 없습니다.");
+        }
+
+        User user = userRepository.getReferenceById(userId);
 
         Category category = Category.builder()
                 .user(user)

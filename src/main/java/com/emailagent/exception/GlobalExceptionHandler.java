@@ -2,6 +2,8 @@ package com.emailagent.exception;
 
 import com.emailagent.dto.response.auth.BaseResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mail.MailException;
@@ -84,6 +86,20 @@ public class GlobalExceptionHandler {
     public ResponseEntity<BaseResponse> handleIllegalArgument(IllegalArgumentException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new BaseResponse(HttpStatus.BAD_REQUEST.value(), e.getMessage()));
+    }
+
+    @ExceptionHandler(CannotAcquireLockException.class)
+    public ResponseEntity<BaseResponse> handleCannotAcquireLock(CannotAcquireLockException e) {
+        log.warn("DB 동시성 충돌 발생", e);
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new BaseResponse(HttpStatus.CONFLICT.value(), "동시 요청 처리 중 충돌이 발생했습니다. 잠시 후 다시 시도해 주세요."));
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<BaseResponse> handleDataIntegrityViolation(DataIntegrityViolationException e) {
+        log.warn("DB 제약 조건 위반", e);
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new BaseResponse(HttpStatus.CONFLICT.value(), "이미 존재하거나 저장할 수 없는 데이터입니다."));
     }
 
     @ExceptionHandler(MailException.class)
