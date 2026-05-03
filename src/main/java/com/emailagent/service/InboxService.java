@@ -238,12 +238,15 @@ public class InboxService {
     public InboxActionResponse processReply(Long userId, Long emailId, ReplyActionRequest request) {
         Email email = findEmailForUser(emailId, userId);
         DraftReply draft = draftReplyRepository.findByEmailIdAndUserId(emailId, userId)
-                .orElseThrow(() -> new ResourceNotFoundException("초안을 찾을 수 없습니다."));
+                .orElse(null);
 
         String action = request.getAction().toUpperCase();
 
         String message = switch (action) {
             case "SEND" -> {
+                if (draft == null) {
+                    throw new ResourceNotFoundException("초안을 찾을 수 없습니다.");
+                }
                 // AI가 생성한 초안 그대로 발송
                 // 발송 실패 시 EmailSendFailedException → 트랜잭션 롤백 (상태 변경 취소)
                 gmailApiService.sendEmail(
@@ -263,29 +266,60 @@ public class InboxService {
                 if (request.getContent() == null || request.getContent().isBlank()) {
                     throw new IllegalArgumentException("EDIT_SEND 액션은 content가 필요합니다.");
                 }
+                String replySubject = resolveReplySubject(email, draft, request.getSubject());
                 // 사용자가 수정한 내용으로 발송
                 gmailApiService.sendEmail(
                         userId,
                         email.getSenderEmail(),
-                        draft.getDraftSubject() != null ? draft.getDraftSubject() : "Re: " + email.getSubject(),
+                        replySubject,
                         request.getContent()
                 );
                 email.updateStatus(EmailStatus.PROCESSED);
-                draft.updateStatus(DraftStatus.EDITED);
-                if (draft.getTemplate() != null) {
-                    draft.getTemplate().incrementUseCount();
+                if (draft == null) {
+                    draftReplyRepository.save(DraftReply.builder()
+                            .user(email.getUser())
+                            .email(email)
+                            .status(DraftStatus.EDITED)
+                            .draftSubject(replySubject)
+                            .draftContent(request.getContent())
+                            .build());
+                } else {
+                    draft.updateContent(replySubject, request.getContent());
+                    draft.updateStatus(DraftStatus.EDITED);
+                    if (draft.getTemplate() != null) {
+                        draft.getTemplate().incrementUseCount();
+                    }
                 }
                 yield "수정된 답장이 발송되었습니다.";
             }
             case "SKIP" -> {
                 email.updateStatus(EmailStatus.PROCESSED);
-                draft.updateStatus(DraftStatus.SKIPPED);
+                if (draft == null) {
+                    draftReplyRepository.save(DraftReply.builder()
+                            .user(email.getUser())
+                            .email(email)
+                            .status(DraftStatus.SKIPPED)
+                            .draftSubject("Re: " + email.getSubject())
+                            .build());
+                } else {
+                    draft.updateStatus(DraftStatus.SKIPPED);
+                }
                 yield "답장이 건너뛰어졌습니다.";
             }
             default -> throw new IllegalArgumentException("알 수 없는 action: " + request.getAction());
         };
 
         return InboxActionResponse.builder().message(message).build();
+    }
+
+    private String resolveReplySubject(Email email, DraftReply draft, String requestedSubject) {
+        if (requestedSubject != null && !requestedSubject.isBlank()) {
+            return requestedSubject.trim();
+        }
+        if (draft != null && draft.getDraftSubject() != null && !draft.getDraftSubject().isBlank()) {
+            return draft.getDraftSubject();
+        }
+        return "Re: " + email.getSubject();
     }
 
     // =============================================
