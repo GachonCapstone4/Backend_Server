@@ -5,6 +5,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;
 import lombok.Getter;
 
+import java.util.List;
+
 @Getter
 @Builder
 public class TemplateRegenerateResponse extends BaseResponse {
@@ -14,10 +16,14 @@ public class TemplateRegenerateResponse extends BaseResponse {
     @JsonProperty("processing_count")
     private int processingCount;
 
-    public static TemplateRegenerateResponse of(int processingCount) {
+    @JsonProperty("job_ids")
+    private List<String> jobIds;
+
+    public static TemplateRegenerateResponse of(int processingCount, List<String> jobIds) {
         return TemplateRegenerateResponse.builder()
                 .status("PROCESSING")
                 .processingCount(processingCount)
+                .jobIds(jobIds)
                 .build();
     }
 }
