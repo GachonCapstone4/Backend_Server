@@ -305,7 +305,7 @@ public class BusinessService {
                 categories.size(),
                 draftJobIds.size()
         );
-        return TemplateRegenerateResponse.of(draftJobIds.size());
+        return TemplateRegenerateResponse.of(draftJobIds.size(), draftJobIds);
     }
 
     private List<Template> resolveReplaceableTemplates(Long userId, TemplateRegenerateRequest request) {

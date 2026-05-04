@@ -245,10 +245,22 @@ public class RagResultService {
         }
 
         int rank = 1;
+        int savedCount = 0;
         for (RagTemplateMatchResultDTO.ResultItem item : items) {
-            Template template = templateRepository.findById(item.getTemplateId())
+            Long templateId = item.getTemplateId();
+            Template template = templateRepository.findById(templateId)
                     .filter(found -> found.getUser().getUserId().equals(userId))
-                    .orElseThrow(() -> new ResourceNotFoundException("추천 템플릿을 찾을 수 없습니다: " + item.getTemplateId()));
+                    .orElse(null);
+
+            if (template == null) {
+                log.warn(
+                        "[RagResultService] 존재하지 않는 추천 템플릿 제외 — userId={}, emailId={}, templateId={}",
+                        userId,
+                        emailId,
+                        templateId
+                );
+                continue;
+            }
 
             EmailTemplateRecommendation recommendation = EmailTemplateRecommendation.builder()
                     .user(email.getUser())
@@ -259,17 +271,21 @@ public class RagResultService {
                     .build();
 
             recommendationRepository.save(recommendation);
+            savedCount++;
+            rank++;
         }
 
         log.info(
                 "[RagResultService] template match 결과 저장 완료 — userId={}, emailId={}, count={}",
                 userId,
                 emailId,
-                items.size()
+                savedCount
         );
 
-        notificationService.createPendingDraftQueueNotificationIfNeeded(email.getUser(), emailId);
-        pushTemplateMatchUpdate(userId, emailId, items.size());
+        if (savedCount > 0) {
+            notificationService.createPendingDraftQueueNotificationIfNeeded(email.getUser(), emailId);
+        }
+        pushTemplateMatchUpdate(userId, emailId, savedCount);
     }
 
     private Long parseEmailId(String rawEmailId) {
