@@ -1,9 +1,15 @@
 package com.emailagent.service;
 
+import com.emailagent.domain.entity.AutomationRule;
 import com.emailagent.domain.entity.Category;
+import com.emailagent.domain.entity.DraftReply;
 import com.emailagent.domain.entity.Email;
+import com.emailagent.domain.entity.EmailAnalysisResult;
 import com.emailagent.domain.entity.EmailTemplateRecommendation;
 import com.emailagent.domain.entity.Template;
+import com.emailagent.domain.enums.DraftStatus;
+import com.emailagent.domain.enums.EmailStatus;
+import com.emailagent.domain.enums.NotificationType;
 import com.emailagent.domain.enums.TemplateOrigin;
 import com.emailagent.exception.ResourceNotFoundException;
 import com.emailagent.rabbitmq.dto.RagDraftGenerateResultDTO;
@@ -11,8 +17,11 @@ import com.emailagent.rabbitmq.dto.RagTemplateMatchResultDTO;
 import com.emailagent.rabbitmq.dto.RagTemplateIndexRequestDTO;
 import com.emailagent.rabbitmq.event.SseEvent;
 import com.emailagent.rabbitmq.publisher.RagPublisher;
+import com.emailagent.repository.AutomationRuleRepository;
 import com.emailagent.repository.BusinessProfileRepository;
 import com.emailagent.repository.CategoryRepository;
+import com.emailagent.repository.DraftReplyRepository;
+import com.emailagent.repository.EmailAnalysisResultRepository;
 import com.emailagent.repository.EmailRepository;
 import com.emailagent.repository.EmailTemplateRecommendationRepository;
 import com.emailagent.repository.TemplateRepository;
@@ -22,9 +31,12 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * RAG 결과 메시지를 백엔드 도메인 모델에 반영하는 서비스.
@@ -33,6 +45,9 @@ import java.util.Map;
 @Service
 @RequiredArgsConstructor
 public class RagResultService {
+
+    private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\{\\{([^}]+)}}");
+    private static final DateTimeFormatter TEMPLATE_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     private final TemplateRepository templateRepository;
     private final CategoryRepository categoryRepository;
@@ -44,6 +59,10 @@ public class RagResultService {
     private final RagPublisher ragPublisher;
     private final ApplicationEventPublisher eventPublisher;
     private final NotificationService notificationService;
+    private final DraftReplyRepository draftReplyRepository;
+    private final AutomationRuleRepository automationRuleRepository;
+    private final GmailApiService gmailApiService;
+    private final EmailAnalysisResultRepository analysisResultRepository;
 
     @Transactional
     public void handleDraftGenerated(RagDraftGenerateResultDTO result) {
@@ -246,6 +265,7 @@ public class RagResultService {
 
         int rank = 1;
         int savedCount = 0;
+        Template topTemplate = null;
         for (RagTemplateMatchResultDTO.ResultItem item : items) {
             Long templateId = item.getTemplateId();
             Template template = templateRepository.findById(templateId)
@@ -272,6 +292,7 @@ public class RagResultService {
 
             recommendationRepository.save(recommendation);
             savedCount++;
+            if (topTemplate == null) topTemplate = template;
             rank++;
         }
 
@@ -284,8 +305,117 @@ public class RagResultService {
 
         if (savedCount > 0) {
             notificationService.createPendingDraftQueueNotificationIfNeeded(email.getUser(), emailId);
+            saveDraftAndTriggerAutoSend(email, userId, emailId, topTemplate);
         }
         pushTemplateMatchUpdate(userId, emailId, savedCount);
+    }
+
+    /**
+     * 최상위 추천 템플릿으로 DraftReply를 저장하고, AutomationRule 조건 충족 시 자동 발송을 시도한다.
+     * placeholder가 미완성인 경우 발송 없이 AUTO_SEND_FAILED 알림만 발송한다.
+     */
+    private void saveDraftAndTriggerAutoSend(Email email, Long userId, Long emailId, Template topTemplate) {
+        // 변수 맵 구성
+        EmailAnalysisResult analysisResult = analysisResultRepository.findByEmail_EmailId(emailId).orElse(null);
+        Map<String, Object> variables = buildAutoSendVariables(email, analysisResult);
+
+        // placeholder 치환 (미완성 항목은 {{key}} 그대로 유지)
+        String filledSubject = applyTemplateVariables(topTemplate.getSubjectTemplate(), variables);
+        String filledBody = applyTemplateVariables(topTemplate.getBodyTemplate(), variables);
+
+        // DraftReply upsert (PENDING_REVIEW)
+        DraftReply draft = draftReplyRepository.findByEmailIdAndUserId(emailId, userId)
+                .map(existing -> {
+                    existing.updateContent(filledSubject, filledBody);
+                    existing.updateTemplate(topTemplate);
+                    existing.updateStatus(DraftStatus.PENDING_REVIEW);
+                    return existing;
+                })
+                .orElseGet(() -> draftReplyRepository.save(DraftReply.builder()
+                        .user(email.getUser())
+                        .email(email)
+                        .template(topTemplate)
+                        .status(DraftStatus.PENDING_REVIEW)
+                        .draftSubject(filledSubject)
+                        .draftContent(filledBody)
+                        .build()));
+        log.info("[RagResultService] draft 저장 완료 — emailId={}, templateId={}", emailId, topTemplate.getTemplateId());
+
+        // 자동발송 규칙 매칭: autoSendEnabled=true, isActive=true, template == topTemplate
+        boolean shouldAutoSend = automationRuleRepository.findByUserIdWithDetails(userId).stream()
+                .anyMatch(rule -> rule.isAutoSendEnabled()
+                        && rule.isActive()
+                        && rule.getTemplate() != null
+                        && rule.getTemplate().getTemplateId().equals(topTemplate.getTemplateId()));
+
+        if (!shouldAutoSend) return;
+
+        // 미완성 placeholder 존재 여부 확인
+        boolean hasUnfilled = PLACEHOLDER_PATTERN.matcher(filledSubject).find()
+                || PLACEHOLDER_PATTERN.matcher(filledBody).find();
+
+        if (hasUnfilled) {
+            notificationService.createNotification(
+                    email.getUser(),
+                    NotificationType.AUTO_SEND_FAILED,
+                    "자동 발송 실패",
+                    "템플릿 내 일부 항목이 자동으로 채워지지 않아 발송하지 못했습니다.",
+                    emailId
+            );
+            log.info("[RagResultService] 자동 발송 실패 (미완성 placeholder) — emailId={}, templateId={}",
+                    emailId, topTemplate.getTemplateId());
+            return;
+        }
+
+        // 자동 발송
+        gmailApiService.sendEmail(userId, email.getSenderEmail(), filledSubject, filledBody);
+        email.updateStatus(EmailStatus.PROCESSED);
+        draft.updateStatus(DraftStatus.SENT);
+        log.info("[RagResultService] 자동 발송 완료 — emailId={}, templateId={}", emailId, topTemplate.getTemplateId());
+    }
+
+    private Map<String, Object> buildAutoSendVariables(Email email, EmailAnalysisResult analysisResult) {
+        Map<String, Object> variables = new LinkedHashMap<>();
+
+        // 고객명: senderName 우선, 없으면 이메일 로컬파트
+        String customerName = (email.getSenderName() != null && !email.getSenderName().isBlank())
+                ? email.getSenderName().trim()
+                : extractEmailLocalPart(email.getSenderEmail());
+        variables.put("고객명", customerName);
+
+        if (analysisResult != null) {
+            if (analysisResult.getIntent() != null) variables.put("문의주제", analysisResult.getIntent());
+            if (analysisResult.getSummaryText() != null) variables.put("문의요약", analysisResult.getSummaryText());
+        }
+        if (email.getReceivedAt() != null) {
+            variables.put("수신일자", TEMPLATE_DATE_FORMATTER.format(email.getReceivedAt()));
+        }
+        String userName = email.getUser().getName();
+        if (userName != null && !userName.isBlank()) variables.put("담당자명", userName);
+
+        return variables;
+    }
+
+    private String applyTemplateVariables(String templateText, Map<String, Object> variables) {
+        if (templateText == null) return "";
+        StringBuffer result = new StringBuffer();
+        Matcher m = PLACEHOLDER_PATTERN.matcher(templateText);
+        while (m.find()) {
+            String key = m.group(1).trim();
+            Object val = variables.get(key);
+            // 값이 없으면 원본 {{key}} 그대로 유지
+            m.appendReplacement(result, Matcher.quoteReplacement(
+                    val != null ? val.toString() : m.group(0)
+            ));
+        }
+        m.appendTail(result);
+        return result.toString();
+    }
+
+    private String extractEmailLocalPart(String emailAddr) {
+        if (emailAddr == null) return "";
+        int atIdx = emailAddr.indexOf('@');
+        return atIdx > 0 ? emailAddr.substring(0, atIdx) : emailAddr;
     }
 
     private Long parseEmailId(String rawEmailId) {

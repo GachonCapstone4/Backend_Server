@@ -3,6 +3,9 @@ package com.emailagent.repository;
 import com.emailagent.domain.entity.Integration;
 import com.emailagent.domain.enums.SyncStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Optional;
 
@@ -15,7 +18,10 @@ public interface IntegrationRepository extends JpaRepository<Integration, Long> 
 
     boolean existsByUser_UserId(Long userId);
 
-    void deleteByUser_UserId(Long userId);
+    // clearAutomatically = true: 벌크 DELETE 후 L1 캐시 정리 → 재가입 시 새 Integration INSERT 전 구 레코드 즉시 제거
+    @Modifying(clearAutomatically = true)
+    @Query("DELETE FROM Integration i WHERE i.user.userId = :userId")
+    void deleteByUser_UserId(@Param("userId") Long userId);
 
     // 관리자 대시보드: 연동 상태별 사용자 수
     long countBySyncStatus(SyncStatus syncStatus);
