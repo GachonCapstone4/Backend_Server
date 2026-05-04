@@ -25,7 +25,8 @@
       "Bash(mvn clean:*)",
       "Bash(xargs cat *)",
       "Bash(Get-ChildItem -Path \"E:\\\\USER\\\\Backend_Server\" -Recurse -Directory)",
-      "Bash(Select-Object FullName)"
+      "Bash(Select-Object FullName)",
+      "Bash(findstr -i \"draft\\\\|rag\\\\|mail\")"
     ]
   }
 }
