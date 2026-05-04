@@ -7,7 +7,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 탈퇴 계정 재가입 시 기존 데이터를 초기화한다.
+ * 사용자 탈퇴 시 연관 데이터를 모두 삭제한다.
  * FK 제약 위반 방지를 위해 하위 엔티티(Email 참조)부터 상위 엔티티 순으로 삭제한다.
  */
 @Slf4j
@@ -34,7 +34,7 @@ public class UserDataCleanupService {
     private final IntegrationRepository integrationRepository;
 
     public void clearAllUserData(Long userId) {
-        log.info("[재가입] 탈퇴 계정 데이터 초기화 시작: userId={}", userId);
+        log.info("[탈퇴] 사용자 연관 데이터 삭제 시작: userId={}", userId);
 
         // 1단계: Email의 하위 엔티티 — Email 삭제 전 먼저 처리 (FK: email_id)
         outboxRepository.deleteByUserId(userId);
@@ -62,6 +62,6 @@ public class UserDataCleanupService {
         businessProfileRepository.deleteByUser_UserId(userId);
         integrationRepository.deleteByUser_UserId(userId);
 
-        log.info("[재가입] 탈퇴 계정 데이터 초기화 완료: userId={}", userId);
+        log.info("[탈퇴] 사용자 연관 데이터 삭제 완료: userId={}", userId);
     }
 }
