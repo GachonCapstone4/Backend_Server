@@ -283,48 +283,10 @@ public class GoogleOAuthService {
 
         LocalDateTime tokenExpiresAt = pending.getTokenExpiresAt();
 
-        // 탈퇴 계정 재가입: 기존 User가 비활성 상태인 경우 재활성화
-        Optional<User> existingOpt = userRepository.findByEmail(pending.getGmailAddress());
-        if (existingOpt.isPresent()) {
-            User existing = existingOpt.get();
-            if (existing.isActive()) {
-                // processSignupCallback 이후 동시 요청으로 활성화된 경우
-                pendingRepository.delete(pending);
-                throw new IllegalArgumentException("이미 가입된 이메일입니다.");
-            }
-            // 탈퇴 계정 재가입: 기존 데이터 초기화 후 재활성화
-            userDataCleanupService.clearAllUserData(existing.getUserId());
-            existing.reactivate(passwordEncoder.encode(request.getPassword()), pending.getName());
-
-            // Integration upsert: cleanup으로 삭제됐으므로 항상 신규 생성
-            Integration integ = integrationRepository.findByUser_UserId(existing.getUserId())
-                    .map(i -> {
-                        i.updateTokens(
-                                pending.getAccessToken(), pending.getRefreshToken(),
-                                tokenExpiresAt, pending.getGrantedScopes(),
-                                pending.getGmailAddress(), pending.getExternalAccountId(),
-                                true, pending.isCalendarConnected());
-                        return i;
-                    })
-                    .orElseGet(() -> integrationRepository.save(Integration.builder()
-                            .user(existing)
-                            .connectedEmail(pending.getGmailAddress())
-                            .externalAccountId(pending.getExternalAccountId())
-                            .accessToken(pending.getAccessToken())
-                            .refreshToken(pending.getRefreshToken())
-                            .tokenExpiresAt(tokenExpiresAt)
-                            .grantedScopes(pending.getGrantedScopes())
-                            .isGmailConnected(true)
-                            .isCalendarConnected(pending.isCalendarConnected())
-                            .syncStatus(SyncStatus.CONNECTED)
-                            .lastSyncedAt(LocalDateTime.now())
-                            .build()));
-
-            registerWatch(integ);
+        // 동일 이메일이 이미 존재하면 가입 불가
+        if (userRepository.findByEmail(pending.getGmailAddress()).isPresent()) {
             pendingRepository.delete(pending);
-            log.info("[Google 회원가입] 탈퇴 계정 재활성화 완료: userId={}, email={}", existing.getUserId(), existing.getEmail());
-            String reactivatedToken = jwtTokenProvider.generateAccessToken(existing.getUserId(), existing.getEmail());
-            return new TokenLoginResponse(reactivatedToken, jwtExpiration);
+            throw new IllegalArgumentException("이미 가입된 이메일입니다.");
         }
 
         // 신규 가입

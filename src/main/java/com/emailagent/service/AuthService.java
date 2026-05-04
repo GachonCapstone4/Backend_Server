@@ -28,32 +28,21 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtTokenProvider jwtTokenProvider;
-    private final UserDataCleanupService userDataCleanupService;
 
     @Value("${jwt.expiration}")
     private long jwtExpiration; // ms 단위
 
     @Transactional
     public SignupResponse signup(SignupRequest request) {
-        return userRepository.findByEmail(request.getEmail())
-                .map(existing -> {
-                    if (existing.isActive()) {
-                        throw new IllegalArgumentException("이미 사용 중인 이메일입니다: " + request.getEmail());
-                    }
-                    // 탈퇴 계정 재가입: 기존 데이터 초기화 후 재활성화
-                    userDataCleanupService.clearAllUserData(existing.getUserId());
-                    existing.reactivate(passwordEncoder.encode(request.getPassword()), request.getName());
-                    log.info("[회원가입] 탈퇴 계정 재활성화: email={}", existing.getEmail());
-                    return new SignupResponse(existing);
-                })
-                .orElseGet(() -> {
-                    User user = userRepository.save(User.builder()
-                            .email(request.getEmail())
-                            .password(passwordEncoder.encode(request.getPassword()))
-                            .name(request.getName())
-                            .build());
-                    return new SignupResponse(user);
-                });
+        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
+            throw new IllegalArgumentException("이미 사용 중인 이메일입니다: " + request.getEmail());
+        }
+        User user = userRepository.save(User.builder()
+                .email(request.getEmail())
+                .password(passwordEncoder.encode(request.getPassword()))
+                .name(request.getName())
+                .build());
+        return new SignupResponse(user);
     }
 
     /**

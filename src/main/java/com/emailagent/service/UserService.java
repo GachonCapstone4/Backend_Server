@@ -24,6 +24,7 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final UserDataCleanupService userDataCleanupService;
 
     @Transactional(readOnly = true)
     public UserProfileResponse getMyProfile(Long userId) {
@@ -41,7 +42,8 @@ public class UserService {
     @Transactional
     public BaseResponse deleteMe(Long userId) {
         User user = findActiveUser(userId);
-        user.deactivate();
+        userDataCleanupService.clearAllUserData(userId);
+        userRepository.delete(user);
         return new BaseResponse();
     }
 
