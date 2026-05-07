@@ -116,6 +116,10 @@ app:
 
 
 
+  admin:
+    email: ${ADMIN_EMAIL:admin@example.com}
+    password: ${ADMIN_PASSWORD:qwer1234}
+
   webhook:
     pubsub-verify-token: ${PUBSUB_VERIFY_TOKEN}
 
