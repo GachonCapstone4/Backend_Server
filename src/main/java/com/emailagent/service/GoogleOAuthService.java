@@ -340,8 +340,17 @@ public class GoogleOAuthService {
     @Transactional
     public BaseResponse deleteIntegration(Long userId) {
         Integration integration = findIntegration(userId);
+        stopGmailWatch(integration);
         integrationRepository.delete(integration);
         return new BaseResponse();
+    }
+
+    /**
+     * 관리자 강제 해제 등 외부 호출용 — userId로 watch 중단.
+     * Integration이 없으면 조용히 무시 (이미 해제된 경우 대비).
+     */
+    public void stopGmailWatchIfPresent(Long userId) {
+        integrationRepository.findByUser_UserId(userId).ifPresent(this::stopGmailWatch);
     }
 
     // ── 내부 헬퍼 ──────────────────────────────────────────────────────────────
@@ -451,6 +460,24 @@ public class GoogleOAuthService {
         } catch (Exception e) {
             log.error("[OAuth] Gmail watch() 등록 실패 — userId={}, error={}",
                     integration.getUser().getUserId(), e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Gmail watch() 중단 — 연동 해제 시 Pub/Sub Push 구독을 즉시 중단한다.
+     * 실패해도 연동 해제(DB 삭제)는 계속 진행되어야 하므로 예외를 삼키고 로그만 남긴다.
+     * stop() 후에도 Google이 최대 수십 초간 push를 보낼 수 있으므로
+     * PubSubHandlerService에서도 연동 없는 메시지를 graceful하게 처리한다.
+     */
+    private void stopGmailWatch(Integration integration) {
+        try {
+            Gmail gmailClient = googleApiClientProvider.buildGmailClient(integration);
+            gmailClient.users().stop("me").execute();
+            log.info("[OAuth] Gmail watch() 중단 완료 — userId={}, email={}",
+                    integration.getUser().getUserId(), integration.getConnectedEmail());
+        } catch (Exception e) {
+            log.warn("[OAuth] Gmail watch() 중단 실패 (연동 해제는 계속 진행) — userId={}, error={}",
+                    integration.getUser().getUserId(), e.getMessage());
         }
     }
 

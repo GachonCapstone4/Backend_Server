@@ -68,9 +68,13 @@ public class PubSubHandlerService {
     public void handleAsync(String emailAddress, Long historyId) {
         try {
             // 1. connectedEmail로 Integration 조회 — 어느 사용자에게 온 메일인지 식별
+            // 연동 해제된 계정은 watch stop 후에도 Google이 잠시 push를 보낼 수 있으므로 graceful 처리
             Integration integration = integrationRepository.findByConnectedEmail(emailAddress)
-                    .orElseThrow(() -> new IllegalStateException(
-                            "연동 정보를 찾을 수 없습니다. emailAddress=" + emailAddress));
+                    .orElse(null);
+            if (integration == null) {
+                log.warn("[PubSub] 연동 해제된 계정의 메시지 수신 — 무시함. emailAddress={}", emailAddress);
+                return;
+            }
 
             if (!integration.isGmailConnected()) {
                 log.warn("[PubSub] Gmail 연동 비활성 상태 — 처리 중단. emailAddress={}", emailAddress);
