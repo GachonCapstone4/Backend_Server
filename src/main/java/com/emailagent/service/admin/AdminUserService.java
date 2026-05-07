@@ -19,6 +19,7 @@ import com.emailagent.repository.IntegrationRepository;
 import com.emailagent.repository.OutboxRepository;
 import com.emailagent.repository.SupportTicketRepository;
 import com.emailagent.repository.UserRepository;
+import com.emailagent.service.GoogleOAuthService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -47,6 +48,7 @@ public class AdminUserService {
     private final DraftReplyRepository draftReplyRepository;
     private final SupportTicketRepository supportTicketRepository;
     private final IntegrationRepository integrationRepository;
+    private final GoogleOAuthService googleOAuthService;
 
     /**
      * 전체 사용자 목록 조회 (이름/이메일/업종 검색 + 페이징)
@@ -187,6 +189,9 @@ public class AdminUserService {
         if (!integrationRepository.existsByUser_UserId(userId)) {
             throw new ResourceNotFoundException("해당 사용자의 Google 연동 정보를 찾을 수 없습니다. userId=" + userId);
         }
+
+        // Gmail Pub/Sub watch 중단 — DB 삭제 전에 호출해야 토큰으로 API 호출 가능
+        googleOAuthService.stopGmailWatchIfPresent(userId);
 
         // 1단계: Email 하위 엔티티 (email_id FK) — Email 삭제 전 먼저 처리
         outboxRepository.deleteByUserId(userId);
