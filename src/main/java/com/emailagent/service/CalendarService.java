@@ -146,6 +146,21 @@ public class CalendarService {
     }
 
     // =============================================
+    // 자동화: PENDING 캘린더 이벤트 자동 확정 (auto_calendar_enabled=true 시 호출)
+    // =============================================
+    @Transactional
+    public void autoConfirmCalendarEvent(Long userId, Long emailId) {
+        calendarEventRepository.findByEmail_EmailIdAndUser_UserIdAndStatus(emailId, userId, "PENDING")
+                .ifPresent(event -> {
+                    event.updateStatus("CONFIRMED");
+                    // GoogleCalendarApiService 내부에서 is_calendar_connected 검증 수행
+                    String googleEventId = googleCalendarApiService.createEvent(userId, event);
+                    event.markAsCalendarAdded(googleEventId);
+                    log.info("[CalendarService] 자동 캘린더 등록 완료 — emailId={}, eventId={}", emailId, event.getEventId());
+                });
+    }
+
+    // =============================================
     // 내부 헬퍼: 소유권 검증 포함 단건 조회
     // =============================================
     private CalendarEvent findEventForUser(Long eventId, Long userId) {
