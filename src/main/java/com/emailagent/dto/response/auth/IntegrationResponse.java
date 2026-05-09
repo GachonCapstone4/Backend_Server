@@ -4,7 +4,7 @@ import com.emailagent.domain.entity.Integration;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Getter;
 
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 
 @Getter
 public class IntegrationResponse extends BaseResponse {
@@ -32,8 +32,9 @@ public class IntegrationResponse extends BaseResponse {
         this.syncStatus = integration.getSyncStatus().name();
         this.isGmailConnected = integration.isGmailConnected();
         this.isCalendarConnected = integration.isCalendarConnected();
+        // DB에 저장된 LocalDateTime은 서버(KST) 기준이므로 Asia/Seoul 존으로 해석 후 Instant 변환
         this.lastSyncedAt = integration.getLastSyncedAt() != null
-                ? integration.getLastSyncedAt().toInstant(ZoneOffset.UTC).toString()
+                ? integration.getLastSyncedAt().atZone(ZoneId.of("Asia/Seoul")).toInstant().toString()
                 : null;
     }
 }
