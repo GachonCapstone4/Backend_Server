@@ -26,7 +26,8 @@
       "Bash(xargs cat *)",
       "Bash(Get-ChildItem -Path \"E:\\\\USER\\\\Backend_Server\" -Recurse -Directory)",
       "Bash(Select-Object FullName)",
-      "Bash(findstr -i \"draft\\\\|rag\\\\|mail\")"
+      "Bash(findstr -i \"draft\\\\|rag\\\\|mail\")",
+      "Bash(grep -E \"\\\\.\\(sql|yaml|yml\\)$\")"
     ]
   }
 }
