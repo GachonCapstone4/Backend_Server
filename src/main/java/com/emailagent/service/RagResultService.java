@@ -32,9 +32,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.format.DateTimeFormatter;
-import java.util.List;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -63,6 +64,7 @@ public class RagResultService {
     private final AutomationRuleRepository automationRuleRepository;
     private final GmailApiService gmailApiService;
     private final EmailAnalysisResultRepository analysisResultRepository;
+    private final CalendarService calendarService;
 
     @Transactional
     public void handleDraftGenerated(RagDraftGenerateResultDTO result) {
@@ -342,13 +344,14 @@ public class RagResultService {
         log.info("[RagResultService] draft 저장 완료 — emailId={}, templateId={}", emailId, topTemplate.getTemplateId());
 
         // 자동발송 규칙 매칭: autoSendEnabled=true, isActive=true, template == topTemplate
-        boolean shouldAutoSend = automationRuleRepository.findByUserIdWithDetails(userId).stream()
-                .anyMatch(rule -> rule.isAutoSendEnabled()
+        Optional<AutomationRule> matchedRule = automationRuleRepository.findByUserIdWithDetails(userId).stream()
+                .filter(rule -> rule.isAutoSendEnabled()
                         && rule.isActive()
                         && rule.getTemplate() != null
-                        && rule.getTemplate().getTemplateId().equals(topTemplate.getTemplateId()));
+                        && rule.getTemplate().getTemplateId().equals(topTemplate.getTemplateId()))
+                .findFirst();
 
-        if (!shouldAutoSend) return;
+        if (matchedRule.isEmpty()) return;
 
         // 미완성 placeholder 존재 여부 확인
         boolean hasUnfilled = PLACEHOLDER_PATTERN.matcher(filledSubject).find()
@@ -369,9 +372,19 @@ public class RagResultService {
 
         // 자동 발송
         gmailApiService.sendEmail(userId, email.getSenderEmail(), filledSubject, filledBody);
-        email.updateStatus(EmailStatus.PROCESSED);
+        email.updateStatus(EmailStatus.AUTO_SENT);
         draft.updateStatus(DraftStatus.SENT);
         log.info("[RagResultService] 자동 발송 완료 — emailId={}, templateId={}", emailId, topTemplate.getTemplateId());
+
+        // auto_calendar_enabled=true 이고 이메일에 연결된 PENDING 캘린더 이벤트가 있으면 자동 확정
+        if (matchedRule.get().isAutoCalendarEnabled()) {
+            try {
+                calendarService.autoConfirmCalendarEvent(userId, emailId);
+            } catch (Exception e) {
+                // 캘린더 미연동 등의 이유로 실패해도 자동발송 결과는 유지
+                log.warn("[RagResultService] 캘린더 자동 등록 실패 (자동발송은 완료됨) — emailId={}, error={}", emailId, e.getMessage());
+            }
+        }
     }
 
     private Map<String, Object> buildAutoSendVariables(Email email, EmailAnalysisResult analysisResult) {
