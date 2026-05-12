@@ -46,7 +46,6 @@ public class RabbitMQConfig {
     public static final String QUEUE_TEMPLATE_MATCH_RESULT  = "q.2app.templates.match";
     public static final String QUEUE_RAG_PROGRESS      = "q.2app.rag.progress";
     public static final String QUEUE_DLX_FAILED        = "q.dlx.failed";
-    public static final String QUEUE_TRAINING_RESULT   = "q.2app.training";
 
     // ===================================================
     // 라우팅 키 상수
