@@ -64,6 +64,7 @@ public class GoogleOAuthService {
     // 회원가입 임시 저장 TTL (10분)
     private static final long PENDING_TTL_MINUTES = 10;
     private static final Set<String> LOOPBACK_FRONTEND_HOSTS = Set.of("localhost", "127.0.0.1", "::1");
+    private static final String DESKTOP_FRONTEND_SCHEME = "maily";
 
     private final IntegrationRepository integrationRepository;
     private final UserRepository userRepository;
@@ -364,10 +365,21 @@ public class GoogleOAuthService {
     }
 
     private String resolveFrontendOrigin(String requestedOrigin) {
-        return normalizeOrigin(requestedOrigin)
-                .filter(this::isAllowedFrontendOrigin)
-                .or(() -> normalizeOrigin(frontendBaseUrl))
-                .orElse(frontendBaseUrl);
+        Optional<String> normalizedRequestedOrigin = normalizeOrigin(requestedOrigin);
+
+        if (normalizedRequestedOrigin.isPresent()) {
+            String origin = normalizedRequestedOrigin.get();
+
+            if (isAllowedFrontendOrigin(origin)) {
+                return origin;
+            }
+
+            if (isDesktopFrontendOrigin(origin)) {
+                throw new IllegalArgumentException("허용되지 않은 데스크톱 OAuth origin입니다.");
+            }
+        }
+
+        return normalizeOrigin(frontendBaseUrl).orElse(frontendBaseUrl);
     }
 
     private boolean isAllowedFrontendOrigin(String origin) {
@@ -396,6 +408,14 @@ public class GoogleOAuthService {
         }
     }
 
+    private boolean isDesktopFrontendOrigin(String origin) {
+        try {
+            return DESKTOP_FRONTEND_SCHEME.equals(new URI(origin).getScheme());
+        } catch (URISyntaxException e) {
+            return false;
+        }
+    }
+
     private Optional<String> normalizeOrigin(String origin) {
         if (origin == null || origin.isBlank()) {
             return Optional.empty();
@@ -409,8 +429,12 @@ public class GoogleOAuthService {
                 return Optional.empty();
             }
 
-            if (!"http".equals(scheme) && !"https".equals(scheme)) {
+            if (!"http".equals(scheme) && !"https".equals(scheme) && !DESKTOP_FRONTEND_SCHEME.equals(scheme)) {
                 return Optional.empty();
+            }
+
+            if (DESKTOP_FRONTEND_SCHEME.equals(scheme)) {
+                return Optional.of(scheme + "://" + host.toLowerCase());
             }
 
             int port = uri.getPort();
