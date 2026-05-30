@@ -31,6 +31,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
@@ -341,7 +346,9 @@ public class GoogleOAuthService {
     @Transactional
     public BaseResponse deleteIntegration(Long userId) {
         Integration integration = findIntegration(userId);
+        // Gmail watch 중단 후 토큰 revoke — watch 중단은 유효한 토큰이 필요하므로 revoke 전에 수행
         stopGmailWatch(integration);
+        revokeToken(integration);
         integrationRepository.delete(integration);
         return new BaseResponse();
     }
@@ -352,6 +359,14 @@ public class GoogleOAuthService {
      */
     public void stopGmailWatchIfPresent(Long userId) {
         integrationRepository.findByUser_UserId(userId).ifPresent(this::stopGmailWatch);
+    }
+
+    /**
+     * 회원 탈퇴 등 외부 호출용 — userId로 Google 토큰 revoke.
+     * Integration이 없으면 조용히 무시 (이미 해제된 경우 대비).
+     */
+    public void revokeTokenIfPresent(Long userId) {
+        integrationRepository.findByUser_UserId(userId).ifPresent(this::revokeToken);
     }
 
     // ── 내부 헬퍼 ──────────────────────────────────────────────────────────────
@@ -501,6 +516,34 @@ public class GoogleOAuthService {
                     integration.getUser().getUserId(), integration.getConnectedEmail());
         } catch (Exception e) {
             log.warn("[OAuth] Gmail watch() 중단 실패 (연동 해제는 계속 진행) — userId={}, error={}",
+                    integration.getUser().getUserId(), e.getMessage());
+        }
+    }
+
+    /**
+     * Google OAuth 토큰 revoke — Google 서버의 consent를 철회하여
+     * 재가입 시 권한 동의 화면이 다시 표시되도록 한다.
+     * 실패해도 연동 해제(DB 삭제)는 계속 진행되어야 하므로 예외를 삼키고 로그만 남긴다.
+     */
+    private void revokeToken(Integration integration) {
+        String refreshToken = integration.getRefreshToken();
+        if (refreshToken == null || refreshToken.isBlank()) {
+            log.warn("[OAuth] Revoke 스킵 — refresh_token 없음: userId={}", integration.getUser().getUserId());
+            return;
+        }
+        try {
+            String url = "https://oauth2.googleapis.com/revoke?token="
+                    + URLEncoder.encode(refreshToken, StandardCharsets.UTF_8);
+            HttpClient httpClient = HttpClient.newHttpClient();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .POST(HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<Void> response = httpClient.send(request, HttpResponse.BodyHandlers.discarding());
+            log.info("[OAuth] Google 토큰 Revoke 완료 — userId={}, status={}",
+                    integration.getUser().getUserId(), response.statusCode());
+        } catch (Exception e) {
+            log.warn("[OAuth] Google 토큰 Revoke 실패 (연동 해제는 계속 진행) — userId={}, error={}",
                     integration.getUser().getUserId(), e.getMessage());
         }
     }
