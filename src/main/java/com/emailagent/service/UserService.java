@@ -25,6 +25,7 @@ public class UserService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final UserDataCleanupService userDataCleanupService;
+    private final GoogleOAuthService googleOAuthService;
 
     @Transactional(readOnly = true)
     public UserProfileResponse getMyProfile(Long userId) {
@@ -42,6 +43,9 @@ public class UserService {
     @Transactional
     public BaseResponse deleteMe(Long userId) {
         User user = findActiveUser(userId);
+        // Gmail watch 중단 후 Google 토큰 revoke — DB 정리 전에 수행
+        googleOAuthService.stopGmailWatchIfPresent(userId);
+        googleOAuthService.revokeTokenIfPresent(userId);
         userDataCleanupService.clearAllUserData(userId);
         userRepository.delete(user);
         return new BaseResponse();
